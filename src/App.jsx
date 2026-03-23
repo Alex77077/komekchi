@@ -2522,7 +2522,7 @@ Answer in max 3 sentences.`;
 
   // Groq API — Türkmenistanda VPN bolmasa-da işleýär, mugt
   // API açaryny almak: console.groq.com -> Create API Key
-  const GROQ_API_KEY = "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";
+  const GROQ_API_KEY = "";
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
