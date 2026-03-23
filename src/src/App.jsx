@@ -2129,17 +2129,35 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
 
   const vis = isI ? tasks.filter((t) => t.who === cu.wid) : tasks;
 
-  const saveTask = (t) => {
-    setTasks((p) => { const e = p.find((x) => x.id === t.id); return e ? p.map((x) => x.id === t.id ? t : x) : [...p, t]; });
-    if (!editT) toast(tl.taskCreated, t.title, "ok");
+  const saveTask = async (t) => {
+    try {
+      // JS 'desc' -> DB 'description' mapping
+      const dbT = { id: t.id, title: t.title, description: t.desc || t.description || "", who: t.who, pri: t.pri, col: t.col, clr: t.clr, dl: t.dl || null, comments: t.comments || [] };
+      const exists = tasks.find((x) => x.id === t.id);
+      if (exists) {
+        await sbFetch(`tasks?id=eq.${t.id}`, "PATCH", dbT);
+      } else {
+        await sbFetch("tasks", "POST", dbT);
+        toast(tl.taskCreated, t.title, "ok");
+      }
+      setTasks((p) => { const e = p.find((x) => x.id === t.id); return e ? p.map((x) => x.id === t.id ? t : x) : [...p, t]; });
+    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
-  const deleteTask = (id) => setTasks((p) => p.filter((t) => t.id !== id));
+  const deleteTask = async (id) => {
+    try {
+      await sbFetch(`tasks?id=eq.${id}`, "DELETE");
+      setTasks((p) => p.filter((t) => t.id !== id));
+    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+  };
 
-  const moveTask = (id, col) => {
-    setTasks((p) => p.map((t) => t.id === id ? { ...t, col } : t));
-    const t = tasks.find((x) => x.id === id);
-    if (col === "Tamamlandy") toast(tl.completedToast, t ? t.title : "", "ok");
+  const moveTask = async (id, col) => {
+    try {
+      await sbFetch(`tasks?id=eq.${id}`, "PATCH", { col });
+      setTasks((p) => p.map((t) => t.id === id ? { ...t, col } : t));
+      const t = tasks.find((x) => x.id === id);
+      if (col === "Tamamlandy") toast(tl.completedToast, t ? t.title : "", "ok");
+    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
   const overdue = vis.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy").length;
@@ -2250,12 +2268,21 @@ function Admin({ workers, setWorkers, users, setUsers, C, mob, cu, settings, set
              : { username: "", password: "", role: "ishgar", name: "", wid: "" });
     setUMod(true);
   };
-  const saveU = () => {
+  const saveU = async () => {
     if (!uF.username.trim() || !uF.password.trim()) return;
-    if (eU) setUsers((p) => p.map((u) => u.id === eU.id ? { ...u, ...uF, wid: uF.wid || null } : u));
-    else    setUsers((p) => [...p, { id: "u" + Date.now(), ...uF, wid: uF.wid || null }]);
+    try {
+      if (eU) {
+        await sbFetch(`users?id=eq.${eU.id}`, "PATCH", { ...uF, wid: uF.wid || null });
+        setUsers((p) => p.map((u) => u.id === eU.id ? { ...u, ...uF, wid: uF.wid || null } : u));
+        toast(tl.toastUserUpdated, uF.name, "ok");
+      } else {
+        const newU = { id: "u" + Date.now(), ...uF, wid: uF.wid || null };
+        await sbFetch("users", "POST", newU);
+        setUsers((p) => [...p, newU]);
+        toast(tl.toastUserAdded, uF.name, "ok");
+      }
+    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     setUMod(false);
-    toast(eU ? tl.toastUserUpdated : tl.toastUserAdded, uF.name, "ok");
   };
 
   return (
