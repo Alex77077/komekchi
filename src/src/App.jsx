@@ -161,7 +161,13 @@ const LogoIcon = ({ size=36 }) => {
 
 // ─── Kömekçi funksiýalar ─────────────────────────────────────
 const gNow   = () => new Date().toLocaleTimeString("tk-TK", { hour: "2-digit", minute: "2-digit" });
-const gToday = () => new Date().toLocaleDateString("tk-TK");
+const gToday = () => {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  return `${dd}.${mm}.${yy}`;
+};
 const uid    = () => Math.random().toString(36).slice(2, 9);
 const tMin   = (t) => { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}s ${d % 60}m`; };
@@ -1358,7 +1364,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
   const todA = attend.filter((a) => a.date === gToday());
   const myW  = workers.find((w) => w.id === cu.wid);
 
-  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(gToday(), dlToTk(t.dl)) < 0);
+  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(dlToTk(t.dl), gToday()) < 0);
   const dueToday = tasks.filter((t) => t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy");
   const lateW    = !isI ? workers.filter((w) => {
     const r = todA.find((a) => a.wid === w.id);
@@ -1448,7 +1454,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
       </div>
 
       {/* Statistika kartalar */}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${mob ? 2 : stats.length},1fr)`, gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${mob ? 2 : stats.length},1fr)`, fontSize: mob ? 11 : 14, gap: 12 }}>
         {stats.map((s) => (
           <div key={s.l} className="kc" style={{ background: C.cd, border: `1px solid ${C.bd}`, borderTop: `3px solid ${s.c}`, borderRadius: 17, padding: 16, transition: "all .2s" }}>
             <div style={{ fontSize: 22, marginBottom: 7 }}>{s.ic}</div>
@@ -1496,12 +1502,12 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {myT.length === 0 && <div style={{ color: C.txM, fontSize: 13 }}>{tl.noTasksCol}</div>}
                 {myT.slice(0, 5).map((t) => {
-                  const ov = t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy";
+                  const ov = t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy";
                   const du = t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy";
                   return (
                     <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${ov ? C.rd : du ? C.yw : t.clr}` }}>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: C.tx }}>{t.title}</div>
+                        <div style={{ fontWeight: 700, fontSize: mob ? 12 : 13, color: C.tx }}>{t.title}</div>
                         {t.dl && <div style={{ fontSize: 11, color: ov ? C.rd : du ? C.yw : C.txS, marginTop: 1 }}>{ov ? tl.overdueTask : du ? tl.dueTodayTask : "📅 " + dlToTk(t.dl)}</div>}
                       </div>
                       <Chip color={CM[t.col].c} sm>{getColLabel(t.col,tl).split(" ")[0]}</Chip>
@@ -1997,7 +2003,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
   const wi   = workers.findIndex((x) => x.id === task.who);
   const pm   = PM[task.pri] || PM.orta;
   const cmts = task.comments || [];
-  const isOv = task.dl && dDiff(gToday(), dlToTk(task.dl)) < 0 && task.col !== "Tamamlandy";
+  const isOv = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
   const isDu = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
 
   const addCmt = () => {
@@ -2033,7 +2039,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, padding: "9px 13px", background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 12 }}>
           <Av a={w.av} i={wi >= 0 ? wi : 0} z={34} />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: C.tx }}>{w.name}</div>
+            <div style={{ fontWeight: 700, fontSize: mob ? 12 : 13, color: C.tx }}>{w.name}</div>
             <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
           </div>
         </div>
@@ -2075,7 +2081,7 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
   const w      = workers.find((x) => x.id === task.who);
   const wi     = workers.findIndex((x) => x.id === task.who);
   const pm     = PM[task.pri] || PM.orta;
-  const isOv   = task.dl && dDiff(gToday(), dlToTk(task.dl)) < 0 && task.col !== "Tamamlandy";
+  const isOv   = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
   const isDu   = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
   const cmts   = (task.comments || []).length;
 
@@ -2160,7 +2166,7 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
-  const overdue = vis.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy").length;
+  const overdue = vis.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "kUp .35s" }}>
@@ -2253,13 +2259,22 @@ function Admin({ workers, setWorkers, users, setUsers, C, mob, cu, settings, set
   const [uF,   setUF]   = useState({ username: "", password: "", role: "ishgar", name: "", wid: "" });
 
   const openW = (w = null) => { setEW(w); setWF(w ? { name: w.name, pos: w.pos, av: w.av } : { name: "", pos: "", av: "" }); setWMod(true); };
-  const saveW = () => {
+  const saveW = async () => {
     if (!wF.name.trim()) return;
     const ini = wF.av || wF.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-    if (eW) setWorkers((p) => p.map((w) => w.id === eW.id ? { ...w, name: wF.name, pos: wF.pos, av: ini } : w));
-    else    setWorkers((p) => [...p, { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde" }]);
+    try {
+      if (eW) {
+        await sbFetch(`workers?id=eq.${eW.id}`, "PATCH", { name: wF.name, pos: wF.pos, av: ini });
+        setWorkers((p) => p.map((w) => w.id === eW.id ? { ...w, name: wF.name, pos: wF.pos, av: ini } : w));
+        toast(tl.toastWorkerUpdated, wF.name, "ok");
+      } else {
+        const nw = { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde" };
+        await sbFetch("workers", "POST", nw);
+        setWorkers((p) => [...p, nw]);
+        toast(tl.toastWorkerAdded, wF.name, "ok");
+      }
+    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     setWMod(false);
-    toast(eW ? tl.toastWorkerUpdated : tl.toastWorkerAdded, wF.name, "ok");
   };
 
   const openU = (u = null) => {
@@ -2531,7 +2546,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     ? [tl.aiQMyTasks, tl.aiQToday, tl.aiQAdvice]
     : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
 
-  const overdue = tasks.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy").length;
+  const overdue = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
 
   // Dile görä AI instruksiýasy
   const langInstr = {
@@ -2786,7 +2801,7 @@ export default function App() {
   // Möhlet geçen tabşyryklary barlaýar
   useEffect(() => {
     if (!cu) return;
-    const od = tasks.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy");
+    const od = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy");
     if (od.length > 0) toast(`${od.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
   }, [cu]); // eslint-disable-line
 
@@ -2831,7 +2846,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <LogoIcon size={36}/>
           <div>
-            <LogoText size={mob ? 16 : 20} C={C} />
+            <LogoText size={mob ? 13 : 20} C={C} />
             {!mob && <div style={{ fontSize: 10, color: C.txM, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", marginTop: -2 }}>{tl.appSubShort}</div>}
           </div>
         </div>
@@ -2848,7 +2863,7 @@ export default function App() {
         )}
 
         {/* Sag tarap düwmeleri */}
-        <div style={{ display: "flex", alignItems: "center", gap: mob ? 5 : 7 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: mob ? 3 : 7 }}>
           {/* Sagat — diňe desktop */}
           {!mob && (
             <div style={{ fontSize: 12, color: C.txS, fontVariantNumeric: "tabular-nums", background: C.cd, padding: "4px 12px", borderRadius: 18, border: `1px solid ${C.bd}` }}>🕐 {time}</div>
@@ -2858,14 +2873,14 @@ export default function App() {
           <LangSwitcher lang={lang} setL={setL} C={C}/>
 
           {/* Profil düwmesi */}
-          <button onClick={() => setProfOpen(true)} className="kb" style={{ display: "flex", alignItems: "center", gap: 6, background: C.cd, border: `1.5px solid ${role.c}44`, borderRadius: 11, padding: mob ? "5px 8px" : "5px 11px", cursor: "pointer" }}>
+          <button onClick={() => setProfOpen(true)} className="kb" style={{ display: "flex", alignItems: "center", gap: 6, background: C.cd, border: `1.5px solid ${role.c}44`, borderRadius: 11, padding: mob ? "4px 6px" : "5px 11px", cursor: "pointer" }}>
             <span style={{display:"flex"}}>{role.ic(role.c, 16)}</span>
             {!mob && <span style={{ fontSize: 12, fontWeight: 800, color: C.tx }}>{cu.name.split(" ")[0]}</span>}
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: role.c, display: "inline-block", boxShadow: `0 0 6px ${role.c}` }} />
           </button>
 
           {/* AI düwmesi — hemişe görünýär */}
-          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: mob ? 34 : "auto", height: mob ? 34 : "auto", padding: mob ? "0" : "7px 14px", borderRadius: mob ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
+          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: mob ? 30 : "auto", height: mob ? 30 : "auto", padding: mob ? "0" : "7px 14px", borderRadius: mob ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
             {mob ? I.robot("white",17) : <span style={{display:"flex",alignItems:"center",gap:5}}>{I.robot("white",16)} AI</span>}
           </button>
 
@@ -2875,7 +2890,7 @@ export default function App() {
           </button>
 
           {/* Çykyş — hemişe görünýär */}
-          <button onClick={() => setCu(null)} className="kb" title={tl.logout} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
+          <button onClick={() => setCu(null)} className="kb" title={tl.logout} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
         </div>
       </header>
 
