@@ -2003,6 +2003,7 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
                 <div style={{ fontSize: 11, color: C.yw, marginTop: 4, fontWeight: 700 }}>⚠️ Saýlanan sene geçdi!</div>
               ) : null;
             })()}
+          </div>
         </div>
 
         <div>
