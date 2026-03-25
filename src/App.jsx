@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 // ─── Supabase ─────────────────────────────────────────────────
 const SB_URL = "https://gilwqcqzzlxvdpqokpyh.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
-const API="http://localhost:5000";
 // Supabase API helper
 async function sbFetch(path, method="GET", body=null) {
   const headers = {
@@ -1280,8 +1279,8 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
   const wi = workers.findIndex((x) => x.id === rec.wid);
   
   // Bazadaky täze sütün atlaryna görä (check_in we check_out)
-  const [inn, setInn] = useState(rec.check_in || rec.inn || ""); 
-  const [out, setOut] = useState(rec.check_out || rec.out || "");
+  const [inn, setInn] = useState(rec.check_in || ""); 
+  const [out, setOut] = useState(rec.check_out || "");
   const [err, setErr] = useState("");
 
   const save = () => {
@@ -1394,7 +1393,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
   const dueToday = tasks.filter((t) => t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy");
   const lateW    = !isI ? workers.filter((w) => {
     const r = todA.find((a) => a.wid === w.id);
-    return r && !r.edited && tMin(r.inn) > tMin(settings.workStart) + settings.lateLimit;
+    return r && !r.edited && tMin(r.check_in) > tMin(settings.workStart) + settings.lateLimit;
   }) : [];
 
   const stats = [
@@ -1405,8 +1404,8 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
   ];
 
   const act = [
-    ...todA.filter((a) => a.out).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.out, ic: "🚪" }; }),
-    ...todA.filter((a) => a.inn).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.cameIn}`,   time: a.inn, ic: I.check(C.pu,22) }; }),
+    ...todA.filter((a) => a.check_out).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.check_out, ic: "🚪" }; }),
+    ...todA.filter((a) => a.check_in).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.cameIn}`,   time: a.check_in, ic: I.check(C.pu,22) }; }),
   ].sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
 
   return (
@@ -1502,7 +1501,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
               {workers.length === 0 && <div style={{ color: C.txM, fontSize: 13, textAlign: "center" }}>{tl.noWorkers}</div>}
               {workers.map((w, i) => {
                 const rec  = attend.find((a) => a.wid === w.id && a.date === gToday());
-                const late = rec && !rec.edited && tMin(rec.inn) > tMin(settings.workStart) + settings.lateLimit;
+                const late = rec && !rec.edited && tMin(rec.check_in) > tMin(settings.workStart) + settings.lateLimit;
                 return (
                   <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 12, border: `1px solid ${C.bdS}` }}>
                     <Av a={w.av} i={i} z={36} />
@@ -1600,7 +1599,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const now  = gNow();
     const late = tMin(now) > tMin(settings.workStart) + settings.lateLimit;
     try {
-      const newA = { id: uid(), wid, date: gToday(), inn: now, out: null, edited: false };
+      const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
       setAttend((p) => [...p, newA]);
@@ -1615,10 +1614,10 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
   const doOut = async (wid) => {
     const now = gNow();
     try {
-      const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.out);
-      if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { out: now });
+      const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.check_out);
+      if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { check_out: now });
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "öýde" });
-      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.out ? { ...a, out: now } : a));
+      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     const w = workers.find((x) => x.id === wid);
@@ -1627,11 +1626,11 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 
   const saveEdit = async (upd) => {
     try {
-      await sbFetch(`attend?id=eq.${upd.id}`, "PATCH", { inn: upd.inn, out: upd.out, edited: true });
+      await sbFetch(`attend?id=eq.${upd.id}`, "PATCH", { check_in: upd.check_in, check_out: upd.check_out, edited: true });
       setAttend((p) => p.map((a) => a.id === upd.id ? upd : a));
       if (upd.date === gToday()) {
-        await sbFetch(`workers?id=eq.${upd.wid}`, "PATCH", { status: upd.out ? "öýde" : "işde" });
-        setWorkers((p) => p.map((w) => w.id === upd.wid ? { ...w, status: upd.out ? "öýde" : "işde" } : w));
+        await sbFetch(`workers?id=eq.${upd.wid}`, "PATCH", { status: upd.check_out ? "öýde" : "işde" });
+        setWorkers((p) => p.map((w) => w.id === upd.wid ? { ...w, status: upd.check_out ? "öýde" : "işde" } : w));
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     toast(tl.toastEditDone, "", "ok");
@@ -1650,8 +1649,8 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const myWid = cu.wid;
     const myW   = workers.find((w) => w.id === myWid);
     const rec   = getRec(myWid);
-    const isIn  = !!rec && !rec.out;
-    const isDone= !!(rec && rec.out);
+    const isIn  = !!rec && !rec.check_out;
+    const isDone= !!(rec && rec.check_out);
     const myHist= attend.filter((a) => a.wid === myWid).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
 
     return (
@@ -1679,7 +1678,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 
           {/* Giriş/Çykyş wagtlary */}
           <div style={{ display: "flex", justifyContent: "center", gap: mob ? 18 : 36, marginBottom: 24 }}>
-            {[[tl.entry, rec ? rec.inn : null, C.gn], [tl.logout, rec ? rec.out : null, C.rd]].map(([l, val, cl]) => (
+            {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.logout, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
               <div key={l} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 5 }}>{l}</div>
                 <div style={{ fontSize: mob ? 26 : 34, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
@@ -1688,7 +1687,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
             {isDone && (
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 5 }}>⏱ Işlän</div>
-                <div style={{ fontSize: mob ? 22 : 28, fontWeight: 900, color: C.pu }}>{calcH(rec.inn, rec.out)}</div>
+                <div style={{ fontSize: mob ? 22 : 28, fontWeight: 900, color: C.pu }}>{calcH(rec.check_in, rec.check_out)}</div>
               </div>
             )}
           </div>
@@ -1704,7 +1703,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {isIn && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <div style={{ background: C.gnS, border: `1px solid ${C.gn}44`, borderRadius: 13, padding: "11px 22px", marginBottom: 4 }}>
-                <div style={{ fontSize: 13, color: C.gn, fontWeight: 700 }}>{`✅ ${rec.inn} — ${tl.atWork}`}</div>
+                <div style={{ fontSize: 13, color: C.gn, fontWeight: 700 }}>{`✅ ${rec.check_in} — ${tl.atWork}`}</div>
               </div>
               <button onClick={() => doOut(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.rd},#e04050)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.rd}44`, transition: "all .2s" }}>
                 {tl.checkOut}
@@ -1717,7 +1716,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <span>{I.celebrate(C.ac, 22)}</span>
               <div style={{ textAlign: "left" }}>
                 <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{tl.todayDone}</div>
-                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.inn} — {rec.out} · {calcH(rec.inn, rec.out)}</div>
+                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.check_in} — {rec.check_out} · {calcH(rec.check_in, rec.check_out)}</div>
               </div>
             </div>
           )}
@@ -1729,14 +1728,14 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {myHist.length === 0 && <div style={{ color: C.txM, fontSize: 13, textAlign: "center" }}>{tl.noRecord}</div>}
             {myHist.map((a) => (
-              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.out ? C.ac : C.gn}` }}>
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.check_out ? C.ac : C.gn}` }}>
                 <div style={{ fontSize: 12, color: C.txS, minWidth: 86, fontWeight: 600 }}>
                   {a.date === gToday() ? "🔵 Şu gün" : a.date}
                 </div>
-                <Chip color={C.gn} sm>{a.inn}</Chip>
+                <Chip color={C.gn} sm>{a.check_in}</Chip>
                 <span style={{ color: C.txM, fontSize: 12 }}>→</span>
-                {a.out ? <Chip color={C.rd} sm>{a.out}</Chip> : <span style={{ fontSize: 12, color: C.gn, fontWeight: 700 }}>{tl.atWork}</span>}
-                {a.out && <Chip color={C.pu} sm>{calcH(a.inn, a.out)}</Chip>}
+                {a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ fontSize: 12, color: C.gn, fontWeight: 700 }}>{tl.atWork}</span>}
+                {a.check_out && <Chip color={C.pu} sm>{calcH(a.check_in, a.check_out)}</Chip>}
                 {a.edited && <Chip color={C.yw} sm>{I.edit(C.yw,11)}</Chip>}
               </div>
             ))}
@@ -1755,7 +1754,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       const p = a.date.split(".");
       return `${p[2]}-${p[1]}` === filterMonth;
     })
-    .sort((a, b) => b.date.localeCompare(a.date) || b.inn.localeCompare(a.inn));
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.check_in || "").localeCompare(a.check_in || ""));
 
   const months = [...new Set(
     attend.filter((a) => in3M(a.date)).map((a) => { const p = a.date.split("."); return `${p[2]}-${p[1]}`; })
@@ -1764,7 +1763,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
   const exportCSV = () => {
     const rows = hist.slice(0, 500).map((a) => {
       const w = workers.find((x) => x.id === a.wid);
-      return `${w ? w.name : "?"}|${a.date}|${a.inn}|${a.out || tl.inOffice}|${calcH(a.inn, a.out) || "—"}|${a.edited ? tl.edited : ""}`;
+      return `${w ? w.name : "?"}|${a.date}|${a.check_in}|${a.check_out || tl.inOffice}|${calcH(a.check_in, a.check_out) || "—"}|${a.edited ? tl.edited : ""}`;
     }).join("\n");
     const csv  = `${tl.workerCol}|${tl.dateCol}|${tl.entryCol}|${tl.exitCol}|${tl.workedCol}|${tl.noteCol}\n` + rows;
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
@@ -1791,9 +1790,9 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
         )}
         {workers.map((w, i) => {
           const rec  = getRec(w.id);
-          const isIn = !!rec && !rec.out;
-          const done = !!(rec && rec.out);
-          const late = rec && !rec.edited && tMin(rec.inn) > tMin(settings.workStart) + settings.lateLimit;
+          const isIn = !!rec && !rec.check_out;
+          const done = !!(rec && rec.check_out);
+          const late = rec && !rec.edited && tMin(rec.check_in) > tMin(settings.workStart) + settings.lateLimit;
           return (
             <div key={w.id} className="kc" style={{ background: C.cd, border: `1px solid ${C.bd}`, borderLeft: `5px solid ${isIn ? C.gn : done ? C.ac : C.bd}`, borderRadius: 17, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14, flexWrap: mob ? "wrap" : "nowrap", transition: "all .2s" }}>
               <Av a={w.av} i={i} z={44} />
@@ -1802,7 +1801,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
               </div>
               <div style={{ display: "flex", gap: mob ? 10 : 22, alignItems: "center", flexWrap: "wrap" }}>
-                {[[tl.entry, rec ? rec.inn : null, C.gn], [tl.logout, rec ? rec.out : null, C.rd]].map(([l, val, cl]) => (
+                {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.logout, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
                   <div key={l} style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
                     <div style={{ fontSize: 19, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
@@ -1811,7 +1810,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {done && (
                   <div style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 2 }}>{tl.hoursCol}</div>
-                    <Chip color={C.pu}>{calcH(rec.inn, rec.out)}</Chip>
+                    <Chip color={C.pu}>{calcH(rec.check_in, rec.check_out)}</Chip>
                   </div>
                 )}
                 {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç</span></Chip>}
@@ -1821,7 +1820,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:5}}>{I.door(C.rd,13)} {tl.leftWork}</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
                 {done && !isAdmin && <Chip color={C.ac}><span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.ac,12)} Tamam</span></Chip>}
                 {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
-                {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), inn: "", out: null, edited: false, _new: true })} />}
+                {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), check_in: "", check_out: null, edited: false, _new: true })} />}
               </div>
             </div>
           );
@@ -1853,8 +1852,8 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {/* Jemi san */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 14 }}>
             {[
-              { l: tl.totalDays,  v: hist.filter((a) => a.out).length, c: C.ac },
-              { l: tl.totalHours,v: (hist.filter((a) => a.out).reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0) / 60).toFixed(1) + "s", c: C.gn },
+              { l: tl.totalDays,  v: hist.filter((a) => a.check_out).length, c: C.ac },
+              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + "s", c: C.gn },
               { l: tl.edits,  v: hist.filter((a) => a.edited).length, c: C.yw },
             ].map((s) => (
               <div key={s.l} style={{ background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 11, padding: "9px 13px", textAlign: "center" }}>
@@ -1875,9 +1874,9 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {hist.slice(0, 200).map((a) => {
                   const w    = workers.find((x) => x.id === a.wid);
                   const wi   = workers.findIndex((x) => x.id === a.wid);
-                  const h    = calcH(a.inn, a.out);
+                  const h    = calcH(a.check_in, a.check_out);
                   const tod  = a.date === gToday();
-                  const late = !a.edited && tMin(a.inn) > tMin(settings.workStart) + settings.lateLimit;
+                  const late = !a.edited && tMin(a.check_in) > tMin(settings.workStart) + settings.lateLimit;
                   return (
                     <tr key={a.id} style={{ borderBottom: `1px solid ${C.bdS}`, background: tod ? C.acG : "transparent" }}>
                       <td style={{ padding: "10px 12px" }}>
@@ -1889,11 +1888,11 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                       <td style={{ padding: "10px 12px", color: C.txS, whiteSpace: "nowrap" }}>{a.date}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          <Chip color={late ? C.yw : C.gn} sm>{a.inn}</Chip>
+                          <Chip color={late ? C.yw : C.gn} sm>{a.check_in}</Chip>
                           {late && <Chip color={C.yw} sm>Giç</Chip>}
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px" }}>{a.out ? <Chip color={C.rd} sm>{a.out}</Chip> : <span style={{ color: C.txM }}>{tl.atWork}</span>}</td>
+                      <td style={{ padding: "10px 12px" }}>{a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ color: C.txM }}>{tl.atWork}</span>}</td>
                       <td style={{ padding: "10px 12px" }}>{h ? <Chip color={C.pu} sm>{h}</Chip> : <span style={{ color: C.txM }}>—</span>}</td>
                       <td style={{ padding: "10px 12px" }}>
                         {a.edited && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.edit(C.yw,11)} {tl.edited}</span></Chip>}
@@ -1924,9 +1923,9 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               const { _new, ...clean } = r;
               try {
                 await sbFetch("attend", "POST", clean);
-                await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.out ? "öýde" : "işde" });
+                await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.check_out ? "öýde" : "işde" });
                 setAttend((p) => [...p, clean]);
-                setWorkers((p) => p.map((w) => w.id === clean.wid && clean.date === gToday() ? { ...w, status: clean.out ? "öýde" : "işde" } : w));
+                setWorkers((p) => p.map((w) => w.id === clean.wid && clean.date === gToday() ? { ...w, status: clean.check_out ? "öýde" : "işde" } : w));
               } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
             } else {
               saveEdit(r);
@@ -1943,11 +1942,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 // ═══════════════════════════════════════════════════════════════
 // KANBAN TABŞYRYKLAR
 // ═══════════════════════════════════════════════════════════════
-function TaskForm({ task, workers, onSave, onClose,deadline, C, cu, tl }) {
-  const today=new Date();
-  const dl= new Date(deadline);
-  today.setHours(0,0,0,0);
-  dl.setHours(0,0,0,0);
+function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
   const isI = cu.role === "ishgar";
   const [f, setF] = useState(task || {
     title: "", desc: "", who: isI ? cu.wid : (workers[0] ? workers[0].id : ""),
@@ -2001,7 +1996,13 @@ function TaskForm({ task, workers, onSave, onClose,deadline, C, cu, tl }) {
               onChange={(e) => s("dl", e.target.value)}
               style={{ width: "100%", padding: "9px 12px", borderRadius: 11, background: C.sf, border: `1.5px solid ${C.bd}`, color: C.tx, fontSize: 13, fontFamily: "inherit" }}
             />
-          </div>
+            {f.dl && (() => {
+              const today = new Date(); today.setHours(0,0,0,0);
+              const dl = new Date(f.dl); dl.setHours(0,0,0,0);
+              return dl < today ? (
+                <div style={{ fontSize: 11, color: C.yw, marginTop: 4, fontWeight: 700 }}>⚠️ Saýlanan sene geçdi!</div>
+              ) : null;
+            })()}
         </div>
 
         <div>
@@ -2009,8 +2010,7 @@ function TaskForm({ task, workers, onSave, onClose,deadline, C, cu, tl }) {
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
             {TKC.map((c) => (
               <div key={c} onClick={() => s("clr", c)} style={{ width: 25, height: 25, borderRadius: 7, background: c, cursor: "pointer", transition: "all .15s", border: f.clr === c ? "3px solid white" : "2px solid transparent", transform: f.clr === c ? "scale(1.25)" : "scale(1)", boxShadow: f.clr === c ? `0 0 10px ${c}88` : "none" }} />
-            ))
-            return dl<today;}
+            ))}
           </div>
         </div>
 
@@ -2070,7 +2070,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, padding: "9px 13px", background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 12 }}>
           <Av a={w.av} i={wi >= 0 ? wi : 0} z={34} />
           <div>
-            <div style={{ fontWeight: 700, fontSize: mob ? 12 : 13, color: C.tx }}>{w.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.tx }}>{w.name}</div>
             <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
           </div>
         </div>
@@ -2483,18 +2483,18 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
   if (cu.role === "ishgar") return <Deny C={C} />;
 
   const ws = workers.map((w) => {
-    const recs = attend.filter((a) => a.wid === w.id && a.out);
-    const mins = recs.reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0);
-    const late = recs.filter((a) => !a.edited && tMin(a.inn) > tMin(settings.workStart) + settings.lateLimit).length;
+    const recs = attend.filter((a) => a.wid === w.id && a.check_out);
+    const mins = recs.reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
+    const late = recs.filter((a) => !a.edited && tMin(a.check_in) > tMin(settings.workStart) + settings.lateLimit).length;
     const mt   = tasks.filter((t) => t.who === w.id);
     const done = mt.filter((t) => t.col === "Tamamlandy").length;
     return { ...w, hours: (mins / 60).toFixed(1), days: recs.length, late, tasks: mt.length, done };
   });
 
-  const totMin = attend.filter((a) => a.out).reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0);
+  const totMin = attend.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
   const top = [
     { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + "s", ic: I.time(C.ac,24), c: C.ac },
-    { l: tl.daysCount,  v: attend.filter((a) => a.out).length,            ic: I.calendar(C.gn,24), c: C.gn },
+    { l: tl.daysCount,  v: attend.filter((a) => a.check_out).length,            ic: I.calendar(C.gn,24), c: C.gn },
     { l: tl.done,  v: tasks.filter((t) => t.col === "Tamamlandy").length, ic: I.check(C.pu,22), c: C.pu },
     { l: tl.workers,    v: workers.length,                                ic: I.workers(C.gn,22), c: C.yw },
   ];
@@ -2632,8 +2632,6 @@ Answer in max 3 sentences.`;
             { role: "system", content: sysPrompt },
             ...nm.map((m) => ({ role: m.role, content: m.content })),
           ],
-        title,
-        dl
         }),
       });
       const d = await r.json();
@@ -2803,7 +2801,7 @@ export default function App() {
         if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== old.id));
       }),
       sbSubscribe("tasks", (ev, rec, old) => {
-        const r = rec ? { ...rec, desc: rec.description, comments: rec.comments || [] } : rec;
+        const r = rec ? { ...rec, desc: rec.description || "", comments: rec.comments || [] } : rec;
         if (ev === "INSERT") setTasks(p => [...p, r]);
         if (ev === "UPDATE") setTasks(p => p.map(x => x.id === r.id ? r : x));
         if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== old.id));
