@@ -171,33 +171,45 @@ const LogoIcon = ({ size=36 }) => {
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Kömekçi funksiýalar ─────────────────────────────────────
-const gNow   = () => new Date().toLocaleTimeString("tk-TK", { hour: "2-digit", minute: "2-digit" });
+const gNow = () => {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+};
+
+// Supabase DATE formaty: YYYY-MM-DD
 const gToday = () => {
   const d = new Date();
-  const dd = String(d.getDate()).padStart(2,'0');
-  const mm = String(d.getMonth()+1).padStart(2,'0');
   const yy = d.getFullYear();
-  return `${dd}.${mm}.${yy}`;
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yy}-${mm}-${dd}`;
 };
+
+// Görkezmek üçin: YYYY-MM-DD -> DD.MM.YYYY
+const fmtDate = (s) => {
+  if (!s) return "";
+  const p = s.split("-");
+  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : s;
+};
+
 const uid    = () => Math.random().toString(36).slice(2, 9);
 const tMin   = (t) => { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}s ${d % 60}m`; };
+const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}sa ${d % 60}min`; };
 
-// Sene tapawudy: a - b gün (DD.MM.YYYY formaty)
+// Sene tapawudy: a - b gün (YYYY-MM-DD formaty)
 const dDiff  = (a, b) => {
-  const parse = (s) => { const p = s.split("."); return new Date(+p[2], +p[1] - 1, +p[0]); };
-  return Math.floor((parse(a) - parse(b)) / 864e5);
+  if (!a || !b) return 0;
+  return Math.floor((new Date(a) - new Date(b)) / 864e5);
 };
 
-// input type="date" berýän YYYY-MM-DD -> DD.MM.YYYY
-const dlToTk = (dl) => {
-  if (!dl) return "";
-  const p = dl.split("-");
-  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : dl;
-};
+// input type="date" YYYY-MM-DD berýär — görkemek üçin DD.MM.YYYY
+const dlToTk = (dl) => fmtDate(dl);
 
-// 3 aýyň içindemi?
-const in3M = (s) => dDiff(gToday(), s) <= 92;
+// 3 aýyň içindemi? (YYYY-MM-DD formaty)
+const in3M = (s) => {
+  if (!s) return false;
+  return dDiff(gToday(), s) <= 92;
+};
 
 // localStorage ─ try/catch bilen goraglanan
 // localStorage diňe tema we dil üçin saklanýar (UI preference)
@@ -208,7 +220,7 @@ const LS = {
 // ═══════════════════════════ DİL ULGAMY ═══════════════════════
 const TK = {
   appSub:"Edara Dolandyryş Sistémasy",appSubShort:"Edara Sistémasy",
-  login:"Ulgama giriş",loginSub:"Maglumatlarňyzy giriziň",
+  login:"Ulgama Giriş",loginSub:"Maglumatyňyzy giriziň",
   username:"Ulanyjy ady",password:"Parol",
   usernamePh:"ulanyjy adyňyz...",passwordPh:"parolyňyz...",
   loginBtn:"Giriş et",checking:"Barlanýar...",
@@ -216,40 +228,40 @@ const TK = {
   errFill:"Ulanyjy adyny we paroly dolduryň!",
   errWrong:"Ulanyjy ady ýa-da parol nädogry!",
   logout:"Çykyş",
-  navHome:"Baş",navAttend:"Gatnawy",navTasks:"Tabşyryk",
+  navHome:"Baş",navAttend:"Gatnaw",navTasks:"Tabşyryk",
   navAdmin:"Admin",navReport:"Hasabat",
   welcome:"Hoş geldiňiz",
-  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Garaşylýar",done:"Tamamlandy",
-  workers:"Işgärler",myTasks:"Meniň tabşyryklam",
-  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket ýok",
-  noWorkers:"Heniz işgär ýok",noTasks:"Tabşyryk ýok",
+  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Etmeli",done:"Tamamlandy",
+  workers:"Işgärler",myTasks:"Meniň Tabşyryklam",
+  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket bellenilmedi",
+  noWorkers:"Heniz işgär goşulmady",noTasks:"Tabşyryk ýok",
   workTime:"Iş wagty",overdueAlert:"tabşyrykda möhlet geçdi!",
   dueTodayAlert:"tabşyrygyň möhleti şu gün gutarýar",
   lateAlert:"Giç gelenler",taskStatus:"Tabşyryklar ýagdaýy",
   cameIn:"işe geldi",wentOut:"işden çykdy",
-  myAttend:"Meniň gatnawyм",attendTitle:"Gatnawyň hasaby",
-  checkIn:"Işe geldim",checkOut:"Işden gidýärin",
+  myAttend:"Meniň gatnawy",attendTitle:"Gatnawyň hasaby",
+  checkIn:"Işe geldim ✅",checkOut:"Işden gidýärin 👋",
   checkInHint:"Işe geleniňizde şu düwmä basyň",
   checkOutHint:"Gitmezden öň şu düwmä basyň",
-  todayDone:"Şu günki iş tamamlandy!",
+  todayDone:"🎉 Şu günki iş üstünlikli tamamlandy!",
   entry:"Giriş",exit:"Çykyş",worked:"Işlän",
-  noRecord:"Taryh ýok",atWork:"Işde",last7:"Soňky 7 günüm",
+  noRecord:"Gatnawy ýazgylary ýok",atWork:"Işde",last7:"Soňky 7 günüm",
   archive:"3 Aýlyk Arhiw",allWorkers:"Ähli işgär",allMonths:"Ähli aý",
   csvDownload:"CSV ýükle",
-  totalDays:"Jemi gün",totalHours:"Jemi sagat",edits:"Düzeltme",
+  totalDays:"Jemi gün",totalHours:"Jemi sagat",edits:"Düzeltmeler",
   workerCol:"Işgär",dateCol:"Sene",entryCol:"Giriş",exitCol:"Çykyş",
-  workedCol:"Işlän",noteCol:"Belgi",actionCol:"Işlem",
+  workedCol:"Işlän",noteCol:"Belgi",actionCol:"Hereket",
   late:"Giç",lateChip:"Giç",today:"Şu gün",edited:"Düzedilen",
-  noData:"Maglumat ýok",
+  noData:"Maglumat tapylmady",
   attendNote:"Bu düzeltme arhiwde Düzedilen belgisi bilen saklanar",
-  kanban:"Kanban Tagtasy",newTask:"Täze tabşyryk",
+  kanban:"Tabşyryklar Tagtasy",newTask:"Täze tabşyryk",
   editTask:"Tabşyrygy üýtget",createTask:"Täze tabşyryk",
   taskName:"Tabşyryk ady",taskNamePh:"Tabşyryk ady...",
   description:"Düşündiriş",descPh:"Gysgaça...",
   worker:"Işgär",priority:"Dereje",column:"Sütün",
   deadline:"Möhlet",color:"Reňk",
   high:"Ýokary",medium:"Orta",low:"Pes",
-  col1:"Etmeli",col2:"Alnyp barylýar",col3:"Barlag",col4:"Tamamlandy",
+  col1:"Etmeli",col2:"Dowam edýär",col3:"Barlag",col4:"Tamamlandy",
   comments:"Bellikler",noComments:"Heniz bellik ýok",commentPh:"Bellik ýaz...",
   overdueTask:"Möhlet geçdi!",dueTodayTask:"Şu gün gutarýar",
   noTasksCol:"Tabşyryk ýok",onlyMyTasks:"Diňe size berlen tabşyryklar görkezilýär",
@@ -258,14 +270,14 @@ const TK = {
   addWorker:"Işgär goş",addUser:"Ulanyjy goş",
   editWorker:"Işgäri üýtget",newWorker:"Täze işgär",
   editUser:"Ulanyjy üýtget",newUser:"Täze ulanyjy",
-  fullName:"Ady soýady",position:"Wezipesi",
-  initials:"Başlangyç harplar (mysal: OA)",
+  fullName:"Ady Soýady",position:"Wezipesi",
+  initials:"Başlangyç harplar (mysal: MA)",
   roleLabel:"Roly",linkWorker:"Işgär bilen baglaň",selectWorker:"— Saýlaň —",
   noWorkersAdmin:"Heniz işgär ýok. Ilki işgär goşuň, soňra ulanyjy döredip oňa baglaň.",
   workStartLabel:"Başlanýar",workEndLabel:"Gutarýar",
   lateLimit:"Giç gelmek çägi (min)",
   lateLimitHint:"Iş başlangyjyndan şu minut geçenden soň Giç geldi hasaplanar",
-  settingsTitle:"Edara sazlamalary",workTimeLabel:"Iş wagty",lateChipAdmin:"Giç çägi",
+  settingsTitle:"Edara sazlamalary",workTimeLabel:"Iş wagty",lateChipAdmin:"Giç gelmek çägi",
   profile:"Profil sazlamalary",saveProfile:"Sakla",
   changePass:"Paroly üýtget",changePassSub:"Bassaňyz parol üýtgedip bolýar",
   changePassOpen:"Täze parolyňyzy giriziň",
@@ -274,7 +286,7 @@ const TK = {
   errUserExists:"Bu ulanyjy ady eýýäm bar!",
   errWrongPass:"Häzirki parol ýalňyş!",errShortPass:"Täze parol azyndan 4 harp!",
   errPassMatch:"Täze parollar gabat gelmeýär!",
-  saved:"Saklandy",profileUpdated:"Profil täzelendi",
+  saved:"Üstünlikli saklandy",profileUpdated:"Profil üstünlikli täzelendi",
   reports:"Hasabatlar",totalHoursS:"Jemi sagat",
   daysCount:"Gün hasaby",workerCount:"Işgärler",workerStats:"Işgär statistikasy",
   positionCol:"Wezipe",daysCol:"Gün",hoursCol:"Sagat",
@@ -288,21 +300,23 @@ const TK = {
   aiQMyTasks:"Tabşyryklam?",aiQToday:"Şu gün näme etmeli?",
   aiQAdvice:"Maslahat ber",aiQEfficiency:"Nädip has netijeli?",
   aiQWho:"Işdä kim bar?",aiQOverdue:"Möhleti geçenler?",
-  aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnamasy düz",
+  aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnama düz",
   aiPh:"Sorag ýazyň...",
   aiGreet:"Salam",aiGreetMsg:"Men Kömekçiniň AI kömekçisi. Nähili kömek edip bilerin?",
-  deny:"Giriş gadagan",denyMsg:"Ygtyýarlylygyňyz ýeterlik däl",
+  deny:"Rugsat ýok",denyMsg:"Siziň bu bölüme girişiňiz çäkli",
   cancel:"Ýatyr",create:"Döret",save:"Sakla",delete:"Poz",
   add:"Goş",edit:"Düzelt",close:"Ýap",
-  toastWorkerAdded:"Işgär goşuldy",toastWorkerUpdated:"Işgär täzelendi",
-  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy goşuldy",
-  toastUserUpdated:"Ulanyjy täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
-  toastSettingsSaved:"Sazlamalar saklandy",
+  toastWorkerAdded:"Işgär üstünlikli goşuldy",toastWorkerUpdated:"Işgär maglumaty täzelendi",
+  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy üstünlikli goşuldy",
+  toastUserUpdated:"Ulanyjy maglumaty täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
+  toastSettingsSaved:"Sazlamalar üstünlikli saklandy",
   toastEditDone:"Gatnawy düzeldildi",toastCsvDone:"CSV ýüklenildi",
   toastOverdue:"tabşyrykda möhlet geçdi",toastOverdueSub:"Tabşyryklar bölümine baryň",
-  completedToast:"Tamamlandy!",taskCreated:"Tabşyryk döredildi",
+  completedToast:"Üstünlikli tamamlandy! 🎉",taskCreated:"Tabşyryk üstünlikli döredildi",
   lateArrival:"giç geldi",onTime:"işe geldi",leftWork:"işden çykdy",
   workSchedule:"Iş:",
+  afterHours:"Iş wagty daşynda",afterHoursMsg:"Iş sagady tamamlandy, ýöne giriş bellenildi",
+  beforeHours:"Iş başlamanka",beforeHoursMsg:"Iş sagady başlamanka giriş bellenildi",
 };
 const RU = {
   appSub:"Система Управления Офисом",appSubShort:"Система Управления",
@@ -316,14 +330,14 @@ const RU = {
   navHome:"Главная",navAttend:"Посещаемость",navTasks:"Задачи",
   navAdmin:"Админ",navReport:"Отчёты",
   welcome:"Добро пожаловать",
-  inOffice:"На работе",inProgress:"В процессе",waiting:"Ожидание",done:"Завершено",
+  inOffice:"На работе",inProgress:"В процессе",waiting:"К выполнению",done:"Завершено",
   workers:"Сотрудники",myTasks:"Мои задачи",
   recentActivity:"Последние действия",noActivity:"Нет действий",
   noWorkers:"Сотрудников пока нет",noTasks:"Нет задач",
   workTime:"Рабочее время",overdueAlert:"задач просрочено!",
   dueTodayAlert:"задач истекает сегодня",lateAlert:"Опоздавшие",taskStatus:"Статус задач",
   cameIn:"пришёл на работу",wentOut:"ушёл с работы",
-  myAttend:"Моя посещаемость",attendTitle:"Учёт посещаемости",
+  myAttend:"Мои Записи Посещаемости",attendTitle:"Учёт посещаемости",
   checkIn:"Я пришёл",checkOut:"Ухожу с работы",
   checkInHint:"Нажмите когда пришли на работу",checkOutHint:"Нажмите перед уходом",
   todayDone:"Рабочий день завершён!",
@@ -392,6 +406,8 @@ const RU = {
   completedToast:"Готово!",taskCreated:"Задача создана",
   lateArrival:"опоздал",onTime:"пришёл на работу",leftWork:"ушёл с работы",
   workSchedule:"Работа:",
+  afterHours:"Вне рабочего времени",afterHoursMsg:"Рабочее время завершено, но отмечен приход",
+  beforeHours:"До начала работы",beforeHoursMsg:"Приход отмечен до начала рабочего времени",
 };
 const EN = {
   appSub:"Office Management System",appSubShort:"Management System",
@@ -405,7 +421,7 @@ const EN = {
   navHome:"Home",navAttend:"Attendance",navTasks:"Tasks",
   navAdmin:"Admin",navReport:"Reports",
   welcome:"Welcome",
-  inOffice:"At Work",inProgress:"In Progress",waiting:"To Do",done:"Done",
+  inOffice:"At Work",inProgress:"In Progress",waiting:"Etmeli",done:"Done",
   workers:"Employees",myTasks:"My Tasks",
   recentActivity:"Recent Activity",noActivity:"No activity yet",
   noWorkers:"No employees yet",noTasks:"No tasks",
@@ -432,7 +448,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"To Do",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"Etmeli",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
@@ -481,6 +497,8 @@ const EN = {
   completedToast:"Done!",taskCreated:"Task created",
   lateArrival:"arrived late",onTime:"arrived",leftWork:"left work",
   workSchedule:"Work:",
+  afterHours:"Outside work hours",afterHoursMsg:"Work hours ended, but check-in recorded",
+  beforeHours:"Before work hours",beforeHoursMsg:"Check-in recorded before work hours start",
 };
 const LANGS = {tk:TK, ru:RU, en:EN};
 
@@ -579,13 +597,13 @@ const LITE = {
 // ─── Sabit maglumatlar ────────────────────────────────────────
 const AVC  = ["#6B8FFF", "#B07EFF", "#FF7DC6", "#2ECC8F", "#22DDEE"];
 const TKC  = ["#6B8FFF", "#2ECC8F", "#FF6B7A", "#FFB84D", "#B07EFF", "#FF7DC6", "#22DDEE"];
-const COLS = ["Etmeli", "Alnyp barylýar", "Barlag", "Tamamlandy"];
+const COLS = ["Etmeli", "Dowam edýär", "Barlag", "Tamamlandy"];
 
 // Sütün adyny dile görä almak
 function getColLabel(col, tl) {
   const map = {
     "Etmeli": tl.col1,
-    "Alnyp barylýar": tl.col2,
+    "Dowam edýär": tl.col2,
     "Barlag": tl.col3,
     "Tamamlandy": tl.col4,
   };
@@ -595,7 +613,7 @@ function getColLabel(col, tl) {
 
 const CM = {
   "Etmeli":        { c: "#8898B8" },
-  "Alnyp barylýar":{ c: "#6B8FFF" },
+  "Dowam edýär":{ c: "#6B8FFF" },
   "Barlag":        { c: "#FFB84D" },
   "Tamamlandy":    { c: "#2ECC8F" },
 };
@@ -881,7 +899,7 @@ function PwStrength({ pw, match, C }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: meta.c }}>{meta.l}</span>
-        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Saklandy","✓ Gabat gelýär")}</span>}
+        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Üstünlikli saklandy","✓ Gabat gelýär")}</span>}
         {!match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.rd }}>{tl.errPassMatch.slice(0,14)}</span>}
       </div>
     </div>
@@ -1125,7 +1143,7 @@ function Profile({ cu, users, setUsers, setCu, C, onClose, toast, tl }) {
           width: 52, height: 52, borderRadius: 16, flexShrink: 0,
           background: r.c + "22", border: `2px solid ${r.c}44`,
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26,
-        }}>{r.ic}</div>
+        }}>{r.ic(r.c, 22)}</div>
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.tx }}>{tl.profile}</div>
           <RC role={cu.role} />
@@ -1324,7 +1342,7 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
         <Av a={w ? w.av : "?"} i={wi >= 0 ? wi : 0} z={38} />
         <div>
           <div style={{ fontWeight: 800, color: C.tx }}>{w ? w.name : "?"}</div>
-          <div style={{ fontSize: 12, color: C.txS }}>{rec.date}</div>
+          <div style={{ fontSize: 12, color: C.txS }}>{fmtDate(rec.date)}</div>
         </div>
         <Chip color={C.yw} sm>{tl.edits}</Chip>
       </div>
@@ -1398,7 +1416,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 
   const stats = [
     ...(!isI ? [{ l: tl.inOffice, v: workers.filter((w) => w.status === "işde").length, tot: workers.length, ic: I.workers(C.gn,22), c: C.gn }] : []),
-    { l: tl.inProgress, v: myT.filter((t) => t.col === "Alnyp barylýar").length, tot: myT.length, ic: I.alert(C.ac,22), c: C.ac },
+    { l: tl.inProgress, v: myT.filter((t) => t.col === "Dowam edýär").length, tot: myT.length, ic: I.alert(C.ac,22), c: C.ac },
     { l: tl.waiting,  v: myT.filter((t) => t.col === "Etmeli").length,          tot: myT.length, ic: I.tasks(C.yw,22), c: C.yw },
     { l: tl.done,  v: myT.filter((t) => t.col === "Tamamlandy").length,       tot: myT.length, ic: I.check(C.pu,22), c: C.pu },
   ];
@@ -1443,7 +1461,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
             {tl.welcome}, {cu.name.split(" ")[0]}! 👋
           </div>
           <div style={{ fontSize: 13, color: C.txS, marginTop: 5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {gToday()} <RC role={cu.role} />
+            {fmtDate(gToday())} <RC role={cu.role} />
           </div>
           {!isI && (
             <div style={{ fontSize: 12, color: C.txS, marginTop: 4 }}>
@@ -1459,7 +1477,7 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
               <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{myW.name}</div>
               <div style={{ fontSize: 12, color: C.txS }}>{myW.pos}</div>
               <Chip color={myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ —"}
+                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}
               </Chip>
             </div>
           </div>
@@ -1510,8 +1528,8 @@ function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
                       <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
                     </div>
                     <div style={{ display: "flex", gap: 5 }}>
-                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç</span></Chip>}
-                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ —"}</Chip>
+                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç geldi</span></Chip>}
+                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
                     </div>
                   </div>
                 );
@@ -1596,19 +1614,26 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 
   const doIn = async (wid) => {
     if (getRec(wid)) return;
-    const now  = gNow();
-    const late = tMin(now) > tMin(settings.workStart) + settings.lateLimit;
+    const now     = gNow();
+    const nowMin  = tMin(now);
+    const startMin= tMin(settings.workStart);
+    const endMin  = tMin(settings.workEnd);
+    const late    = nowMin > startMin + settings.lateLimit;
+    const afterWH = nowMin > endMin;
+    const beforeWH= nowMin < startMin;
+    const w  = workers.find((x) => x.id === wid);
+    const nm = w ? w.name : "?";
     try {
       const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
       setAttend((p) => [...p, newA]);
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
+      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
+      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
+      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart})`, "info");
+      else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-    const w = workers.find((x) => x.id === wid);
-    const nm = w ? w.name : "?";
-    if (late) toast(`${nm} ${tl.lateArrival}`, `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart})`, "info");
-    else       toast(`${nm} ${tl.onTime}`, `Giriş: ${now}`, "ok");
   };
 
   const doOut = async (wid) => {
@@ -1621,7 +1646,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     const w = workers.find((x) => x.id === wid);
-    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `Çykyş: ${now}`, "info");
+    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now}`, "info");
   };
 
   const saveEdit = async (upd) => {
@@ -1657,7 +1682,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "kUp .35s" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <STit icon={I.calendar(C.txS,17)} t={tl.myAttend} C={C} mb={0} />
-          <Chip color={C.ac}>{gToday()}</Chip>
+          <Chip color={C.ac}>{fmtDate(gToday())}</Chip>
         </div>
 
         <div style={{ background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 22, padding: mob ? "18px" : "26px", textAlign: "center" }}>
@@ -1667,7 +1692,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <div style={{ fontWeight: 900, fontSize: 18, color: C.tx }}>{myW ? myW.name : "Işgär"}</div>
               <div style={{ fontSize: 13, color: C.txS }}>{myW ? myW.pos : ""}</div>
               <Chip color={myW && myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ —"}
+                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ Ýok"}
               </Chip>
             </div>
           </div>
@@ -1678,7 +1703,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 
           {/* Giriş/Çykyş wagtlary */}
           <div style={{ display: "flex", justifyContent: "center", gap: mob ? 18 : 36, marginBottom: 24 }}>
-            {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.logout, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
+            {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.exit, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
               <div key={l} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 5 }}>{l}</div>
                 <div style={{ fontSize: mob ? 26 : 34, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
@@ -1695,7 +1720,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {!rec && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <button onClick={() => doIn(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.gn},#0DBF7A)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.gn}44`, transition: "all .2s" }}>
-                ✅ Işe geldim
+                Işe geldim ✅
               </button>
               <div style={{ fontSize: 12, color: C.txM }}>{tl.checkInHint}</div>
             </div>
@@ -1730,7 +1755,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
             {myHist.map((a) => (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.check_out ? C.ac : C.gn}` }}>
                 <div style={{ fontSize: 12, color: C.txS, minWidth: 86, fontWeight: 600 }}>
-                  {a.date === gToday() ? "🔵 Şu gün" : a.date}
+                  {a.date === gToday() ? "🔵 Şu gün" : fmtDate(a.date)}
                 </div>
                 <Chip color={C.gn} sm>{a.check_in}</Chip>
                 <span style={{ color: C.txM, fontSize: 12 }}>→</span>
@@ -1754,7 +1779,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       const p = a.date.split(".");
       return `${p[2]}-${p[1]}` === filterMonth;
     })
-    .sort((a, b) => b.date.localeCompare(a.date) || (b.check_in || "").localeCompare(a.check_in || ""));
+    .sort((a, b) => { const dd = b.date.localeCompare(a.date); return dd !== 0 ? dd : (b.check_in||"").localeCompare(a.check_in||""); });
 
   const months = [...new Set(
     attend.filter((a) => in3M(a.date)).map((a) => { const p = a.date.split("."); return `${p[2]}-${p[1]}`; })
@@ -1801,7 +1826,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
               </div>
               <div style={{ display: "flex", gap: mob ? 10 : 22, alignItems: "center", flexWrap: "wrap" }}>
-                {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.logout, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
+                {[[tl.entry, rec ? rec.check_in : null, C.gn], [tl.exit, rec ? rec.check_out : null, C.rd]].map(([l, val, cl]) => (
                   <div key={l} style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
                     <div style={{ fontSize: 19, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
@@ -1813,7 +1838,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                     <Chip color={C.pu}>{calcH(rec.check_in, rec.check_out)}</Chip>
                   </div>
                 )}
-                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç</span></Chip>}
+                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç geldi</span></Chip>}
               </div>
               <div style={{ display: "flex", gap: 7, flexShrink: 0, flexWrap: "wrap" }}>
                 {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:5}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
@@ -1853,7 +1878,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 14 }}>
             {[
               { l: tl.totalDays,  v: hist.filter((a) => a.check_out).length, c: C.ac },
-              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + "s", c: C.gn },
+              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + " sa", c: C.gn },
               { l: tl.edits,  v: hist.filter((a) => a.edited).length, c: C.yw },
             ].map((s) => (
               <div key={s.l} style={{ background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 11, padding: "9px 13px", textAlign: "center" }}>
@@ -1885,7 +1910,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                           <span style={{ fontWeight: 700, color: C.tx }}>{w ? w.name : "?"}</span>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px", color: C.txS, whiteSpace: "nowrap" }}>{a.date}</td>
+                      <td style={{ padding: "10px 12px", color: C.txS, whiteSpace: "nowrap" }}>{fmtDate(a.date)}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 4 }}>
                           <Chip color={late ? C.yw : C.gn} sm>{a.check_in}</Chip>
@@ -2089,7 +2114,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                   <span style={{ fontSize: 13 }}>{r ? r.ic(r.c, 20) : "?"}</span>
                   <span style={{ fontWeight: 700, fontSize: 12, color: C.tx }}>{c.author}</span>
-                  <span style={{ fontSize: 10, color: C.txM, marginLeft: "auto" }}>{c.date} {c.time}</span>
+                  <span style={{ fontSize: 10, color: C.txM, marginLeft: "auto" }}>{fmtDate(c.date)} {c.time}</span>
                 </div>
                 <div style={{ fontSize: 13, color: C.tx, lineHeight: 1.5 }}>{c.text}</div>
               </div>
@@ -2376,7 +2401,7 @@ function Admin({ workers, setWorkers, users, setUsers, C, mob, cu, settings, set
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.tx }}>{w.name}</div>
                   <div style={{ fontSize: 12, color: C.txS, marginTop: 1 }}>{w.pos}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ —"}</Chip>
+                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
@@ -2494,7 +2519,7 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 
   const totMin = attend.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
   const top = [
-    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + "s", ic: I.time(C.ac,24), c: C.ac },
+    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + " sa", ic: I.time(C.ac,24), c: C.ac },
     { l: tl.daysCount,  v: attend.filter((a) => a.check_out).length,            ic: I.calendar(C.gn,24), c: C.gn },
     { l: tl.done,  v: tasks.filter((t) => t.col === "Tamamlandy").length, ic: I.check(C.pu,22), c: C.pu },
     { l: tl.workers,    v: workers.length,                                ic: I.workers(C.gn,22), c: C.yw },
