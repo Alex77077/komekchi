@@ -2627,7 +2627,7 @@ Answer in max 3 sentences.`;
           "Authorization": `Bearer ${GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: "llama3-8b-8192",
           max_tokens: 600,
           messages: [
             { role: "system", content: sysPrompt },
