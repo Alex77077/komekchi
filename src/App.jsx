@@ -2861,9 +2861,6 @@ Overdue: ${overdue}`}
 Answer in max 3 sentences.`;
 
   // Groq API — Türkmenistanda VPN bolmasa-da işleýär, mugt
-  // API açaryny almak: console.groq.com -> Create API Key
-  const GROQ_API_KEY = "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";
-
   const send = async (txt) => {
     const msg = (txt || inp).trim();
     if (!msg || load) return;
@@ -2872,38 +2869,34 @@ Answer in max 3 sentences.`;
     setMsgs(nm);
     setLoad(true);
 
-    if (!GROQ_API_KEY) {
-      setMsgs((p) => [...p, {
-        role: "assistant",
-        content: "⚙️ AI işlemek üçin Groq API açaryny App.jsx faýlynda GROQ_API_KEY ýerine goýuň.\n\n1. console.groq.com açyň\n2. Hasap açyň (mugt)\n3. API Keys -> Create API Key\n4. Açary App.jsx-däki GROQ_API_KEY = \"\" içine goýuň",
-      }]);
-      setLoad(false);
-      return;
-    }
-
     try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      // Anthropic API — claude.ai-de mugt elýeterli
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 600,
-          messages: [
-            { role: "system", content: sysPrompt },
-            ...nm.map((m) => ({ role: m.role, content: m.content })),
-          ],
+          system: sysPrompt,
+          messages: nm.filter(m => m.role !== "system").map((m) => ({ role: m.role, content: m.content })),
         }),
       });
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(errText);
+      }
       const d = await r.json();
-      const text = d.choices && d.choices[0] && d.choices[0].message
-        ? d.choices[0].message.content
+      const text = d.content && d.content[0] && d.content[0].text
+        ? d.content[0].text
         : "Ötünç, jogap alyp bolmady.";
       setMsgs((p) => [...p, { role: "assistant", content: text }]);
-    } catch {
-      setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
+    } catch(err) {
+      setMsgs((p) => [...p, { role: "assistant", content: `⚠️ AI jogap berip bilmedi. Internetiňizi barlaň.
+${err.message || ""}` }]);
     }
     setLoad(false);
   };
@@ -3082,7 +3075,6 @@ export default function App() {
         if (ev === "UPDATE") setUsers(p => p.map(x => x.id === rec.id ? rec : x));
         if (ev === "DELETE") setUsers(p => p.filter(x => x.id !== old.id));
       }),
-    ];
       sbSubscribe("depts", (ev, rec, old) => {
         if (ev === "INSERT") setDepts(p => [...p, rec]);
         if (ev === "UPDATE") setDepts(p => p.map(x => x.id === rec.id ? rec : x));
