@@ -3,82 +3,27 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 // ─── Supabase ─────────────────────────────────────────────────
 const SB_URL = "https://gilwqcqzzlxvdpqokpyh.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
+
 // Supabase API helper
 async function sbFetch(path, method="GET", body=null) {
-  const headers = {
-    "apikey": SB_KEY,
-    "Authorization": "Bearer " + SB_KEY,
-    "Content-Type": "application/json",
-  };
-
-  // Diňe täze maglumat goşulanda (POST) ýa-da üýtgedilende (PATCH) 
-  // bize täze maglumatyň nusgasyny gaýtaryp bermegini soraýarys.
-  if (method === "POST" || method === "PATCH") {
-    headers["Prefer"] = "return=representation";
-  }
-
   const res = await fetch(SB_URL + "/rest/v1/" + path, {
     method,
-    headers,
+    headers: {
+      "apikey": SB_KEY,
+      "Authorization": "Bearer " + SB_KEY,
+      "Content-Type": "application/json",
+      "Prefer": method === "POST" ? "return=representation" : 
+                method === "PATCH" ? "return=representation" : "return=minimal",
+    },
     body: body ? JSON.stringify(body) : null,
   });
-
   if (!res.ok) {
     const err = await res.text();
-    console.error("Supabase Error:", err);
     throw new Error(err);
   }
-
-  // Eger baza '204 No Content' (jogap boş) gaýtarsa, programma ýalňyşlyk bermez ýaly:
-  if (res.status === 204) return null;
-
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
-
-
-// ─── Supabase Storage — faýl ýüklemek ─────────────
-const SB_STORAGE = SB_URL + "/storage/v1";
-
-async function uploadFile(file, taskId) {
-  const ext  = file.name.split(".").pop();
-  const path = `tasks/${taskId}/${uid()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-  const res  = await fetch(`${SB_STORAGE}/object/task-files/${path}`, {
-    method: "POST",
-    headers: {
-      "apikey":        SB_KEY,
-      "Authorization": "Bearer " + SB_KEY,
-      "Content-Type":  file.type || "application/octet-stream",
-    },
-    body: file,
-  });
-  if (!res.ok) { const e = await res.text(); throw new Error(e); }
-  return { name: file.name, path, size: file.size, type: file.type, ext };
-}
-
-function getFileUrl(path) {
-  return `${SB_STORAGE}/object/public/task-files/${path}`;
-}
-
-function fileIcon(ext) {
-  const e = (ext||"").toLowerCase();
-  if (["doc","docx"].includes(e)) return "📄";
-  if (["xls","xlsx"].includes(e)) return "📊";
-  if (["pdf"].includes(e))        return "📕";
-  if (["png","jpg","jpeg","gif","webp"].includes(e)) return "🖼️";
-  if (["zip","rar"].includes(e))  return "🗜️";
-  if (["txt"].includes(e))        return "📝";
-  if (["ppt","pptx"].includes(e)) return "📋";
-  return "📎";
-}
-
-function fmtSize(bytes) {
-  if (!bytes) return "";
-  if (bytes < 1024)       return bytes + " B";
-  if (bytes < 1048576)    return (bytes/1024).toFixed(1) + " KB";
-  return (bytes/1048576).toFixed(1) + " MB";
-}
-// ──────────────────────────────────────────────────
 
 // Supabase real-time helper
 function sbSubscribe(table, callback) {
@@ -215,45 +160,27 @@ const LogoIcon = ({ size=36 }) => {
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Kömekçi funksiýalar ─────────────────────────────────────
-const gNow = () => {
-  const d = new Date();
-  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
-};
-
-// Supabase DATE formaty: YYYY-MM-DD
-const gToday = () => {
-  const d = new Date();
-  const yy = d.getFullYear();
-  const mm = String(d.getMonth()+1).padStart(2,'0');
-  const dd = String(d.getDate()).padStart(2,'0');
-  return `${yy}-${mm}-${dd}`;
-};
-
-// Görkezmek üçin: YYYY-MM-DD -> DD.MM.YYYY
-const fmtDate = (s) => {
-  if (!s) return "";
-  const p = s.split("-");
-  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : s;
-};
-
+const gNow   = () => new Date().toLocaleTimeString("tk-TK", { hour: "2-digit", minute: "2-digit" });
+const gToday = () => new Date().toLocaleDateString("tk-TK");
 const uid    = () => Math.random().toString(36).slice(2, 9);
 const tMin   = (t) => { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}sa ${d % 60}min`; };
+const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}s ${d % 60}m`; };
 
-// Sene tapawudy: a - b gün (YYYY-MM-DD formaty)
+// Sene tapawudy: a - b gün (DD.MM.YYYY formaty)
 const dDiff  = (a, b) => {
-  if (!a || !b) return 0;
-  return Math.floor((new Date(a) - new Date(b)) / 864e5);
+  const parse = (s) => { const p = s.split("."); return new Date(+p[2], +p[1] - 1, +p[0]); };
+  return Math.floor((parse(a) - parse(b)) / 864e5);
 };
 
-// input type="date" YYYY-MM-DD berýär — görkemek üçin DD.MM.YYYY
-const dlToTk = (dl) => fmtDate(dl);
-
-// 3 aýyň içindemi? (YYYY-MM-DD formaty)
-const in3M = (s) => {
-  if (!s) return false;
-  return dDiff(gToday(), s) <= 92;
+// input type="date" berýän YYYY-MM-DD -> DD.MM.YYYY
+const dlToTk = (dl) => {
+  if (!dl) return "";
+  const p = dl.split("-");
+  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : dl;
 };
+
+// 3 aýyň içindemi?
+const in3M = (s) => dDiff(gToday(), s) <= 92;
 
 // localStorage ─ try/catch bilen goraglanan
 // localStorage diňe tema we dil üçin saklanýar (UI preference)
@@ -264,7 +191,7 @@ const LS = {
 // ═══════════════════════════ DİL ULGAMY ═══════════════════════
 const TK = {
   appSub:"Edara Dolandyryş Sistémasy",appSubShort:"Edara Sistémasy",
-  login:"Ulgama Giriş",loginSub:"Maglumatyňyzy giriziň",
+  login:"Ulgama giriş",loginSub:"Maglumatlarňyzy giriziň",
   username:"Ulanyjy ady",password:"Parol",
   usernamePh:"ulanyjy adyňyz...",passwordPh:"parolyňyz...",
   loginBtn:"Giriş et",checking:"Barlanýar...",
@@ -272,40 +199,40 @@ const TK = {
   errFill:"Ulanyjy adyny we paroly dolduryň!",
   errWrong:"Ulanyjy ady ýa-da parol nädogry!",
   logout:"Çykyş",
-  navHome:"Baş",navAttend:"Gatnaw",navTasks:"Tabşyryk",
+  navHome:"Baş",navAttend:"Gatnawy",navTasks:"Tabşyryk",
   navAdmin:"Admin",navReport:"Hasabat",
   welcome:"Hoş geldiňiz",
-  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Etmeli",done:"Tamamlandy",
-  workers:"Işgärler",myTasks:"Meniň Tabşyryklam",
-  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket bellenilmedi",
-  noWorkers:"Heniz işgär goşulmady",noTasks:"Tabşyryk ýok",
+  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Garaşylýar",done:"Tamamlandy",
+  workers:"Işgärler",myTasks:"Meniň tabşyryklam",
+  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket ýok",
+  noWorkers:"Heniz işgär ýok",noTasks:"Tabşyryk ýok",
   workTime:"Iş wagty",overdueAlert:"tabşyrykda möhlet geçdi!",
   dueTodayAlert:"tabşyrygyň möhleti şu gün gutarýar",
   lateAlert:"Giç gelenler",taskStatus:"Tabşyryklar ýagdaýy",
   cameIn:"işe geldi",wentOut:"işden çykdy",
-  myAttend:"Meniň gatnawy",attendTitle:"Gatnawyň hasaby",
-  checkIn:"Işe geldim ✅",checkOut:"Işden gidýärin 👋",
+  myAttend:"Meniň gatnawyм",attendTitle:"Gatnawyň hasaby",
+  checkIn:"Işe geldim",checkOut:"Işden gidýärin",
   checkInHint:"Işe geleniňizde şu düwmä basyň",
   checkOutHint:"Gitmezden öň şu düwmä basyň",
-  todayDone:"🎉 Şu günki iş üstünlikli tamamlandy!",
+  todayDone:"Şu günki iş tamamlandy!",
   entry:"Giriş",exit:"Çykyş",worked:"Işlän",
-  noRecord:"Gatnawy ýazgylary ýok",atWork:"Işde",last7:"Soňky 7 günüm",
+  noRecord:"Taryh ýok",atWork:"Işde",last7:"Soňky 7 günüm",
   archive:"3 Aýlyk Arhiw",allWorkers:"Ähli işgär",allMonths:"Ähli aý",
   csvDownload:"CSV ýükle",
-  totalDays:"Jemi gün",totalHours:"Jemi sagat",edits:"Düzeltmeler",
+  totalDays:"Jemi gün",totalHours:"Jemi sagat",edits:"Düzeltme",
   workerCol:"Işgär",dateCol:"Sene",entryCol:"Giriş",exitCol:"Çykyş",
-  workedCol:"Işlän",noteCol:"Belgi",actionCol:"Hereket",
+  workedCol:"Işlän",noteCol:"Belgi",actionCol:"Işlem",
   late:"Giç",lateChip:"Giç",today:"Şu gün",edited:"Düzedilen",
-  noData:"Maglumat tapylmady",
+  noData:"Maglumat ýok",
   attendNote:"Bu düzeltme arhiwde Düzedilen belgisi bilen saklanar",
-  kanban:"Tabşyryklar Tagtasy",newTask:"Täze tabşyryk",
+  kanban:"Kanban Tagtasy",newTask:"Täze tabşyryk",
   editTask:"Tabşyrygy üýtget",createTask:"Täze tabşyryk",
   taskName:"Tabşyryk ady",taskNamePh:"Tabşyryk ady...",
   description:"Düşündiriş",descPh:"Gysgaça...",
   worker:"Işgär",priority:"Dereje",column:"Sütün",
   deadline:"Möhlet",color:"Reňk",
   high:"Ýokary",medium:"Orta",low:"Pes",
-  col1:"Etmeli",col2:"Dowam edýär",col3:"Barlag",col4:"Tamamlandy",
+  col1:"Etmeli",col2:"Alnyp barylýar",col3:"Barlag",col4:"Tamamlandy",
   comments:"Bellikler",noComments:"Heniz bellik ýok",commentPh:"Bellik ýaz...",
   overdueTask:"Möhlet geçdi!",dueTodayTask:"Şu gün gutarýar",
   noTasksCol:"Tabşyryk ýok",onlyMyTasks:"Diňe size berlen tabşyryklar görkezilýär",
@@ -314,14 +241,14 @@ const TK = {
   addWorker:"Işgär goş",addUser:"Ulanyjy goş",
   editWorker:"Işgäri üýtget",newWorker:"Täze işgär",
   editUser:"Ulanyjy üýtget",newUser:"Täze ulanyjy",
-  fullName:"Ady Soýady",position:"Wezipesi",
-  initials:"Başlangyç harplar (mysal: MA)",
+  fullName:"Ady soýady",position:"Wezipesi",
+  initials:"Başlangyç harplar (mysal: OA)",
   roleLabel:"Roly",linkWorker:"Işgär bilen baglaň",selectWorker:"— Saýlaň —",
   noWorkersAdmin:"Heniz işgär ýok. Ilki işgär goşuň, soňra ulanyjy döredip oňa baglaň.",
   workStartLabel:"Başlanýar",workEndLabel:"Gutarýar",
   lateLimit:"Giç gelmek çägi (min)",
   lateLimitHint:"Iş başlangyjyndan şu minut geçenden soň Giç geldi hasaplanar",
-  settingsTitle:"Edara sazlamalary",workTimeLabel:"Iş wagty",lateChipAdmin:"Giç gelmek çägi",
+  settingsTitle:"Edara sazlamalary",workTimeLabel:"Iş wagty",lateChipAdmin:"Giç çägi",
   profile:"Profil sazlamalary",saveProfile:"Sakla",
   changePass:"Paroly üýtget",changePassSub:"Bassaňyz parol üýtgedip bolýar",
   changePassOpen:"Täze parolyňyzy giriziň",
@@ -330,7 +257,7 @@ const TK = {
   errUserExists:"Bu ulanyjy ady eýýäm bar!",
   errWrongPass:"Häzirki parol ýalňyş!",errShortPass:"Täze parol azyndan 4 harp!",
   errPassMatch:"Täze parollar gabat gelmeýär!",
-  saved:"Üstünlikli saklandy",profileUpdated:"Profil üstünlikli täzelendi",
+  saved:"Saklandy",profileUpdated:"Profil täzelendi",
   reports:"Hasabatlar",totalHoursS:"Jemi sagat",
   daysCount:"Gün hasaby",workerCount:"Işgärler",workerStats:"Işgär statistikasy",
   positionCol:"Wezipe",daysCol:"Gün",hoursCol:"Sagat",
@@ -344,31 +271,21 @@ const TK = {
   aiQMyTasks:"Tabşyryklam?",aiQToday:"Şu gün näme etmeli?",
   aiQAdvice:"Maslahat ber",aiQEfficiency:"Nädip has netijeli?",
   aiQWho:"Işdä kim bar?",aiQOverdue:"Möhleti geçenler?",
-  aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnama düz",
+  aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnamasy düz",
   aiPh:"Sorag ýazyň...",
   aiGreet:"Salam",aiGreetMsg:"Men Kömekçiniň AI kömekçisi. Nähili kömek edip bilerin?",
-  deny:"Rugsat ýok",denyMsg:"Siziň bu bölüme girişiňiz çäkli",
+  deny:"Giriş gadagan",denyMsg:"Ygtyýarlylygyňyz ýeterlik däl",
   cancel:"Ýatyr",create:"Döret",save:"Sakla",delete:"Poz",
   add:"Goş",edit:"Düzelt",close:"Ýap",
-  toastWorkerAdded:"Işgär üstünlikli goşuldy",toastWorkerUpdated:"Işgär maglumaty täzelendi",
-  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy üstünlikli goşuldy",
-  toastUserUpdated:"Ulanyjy maglumaty täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
-  toastSettingsSaved:"Sazlamalar üstünlikli saklandy",
+  toastWorkerAdded:"Işgär goşuldy",toastWorkerUpdated:"Işgär täzelendi",
+  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy goşuldy",
+  toastUserUpdated:"Ulanyjy täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
+  toastSettingsSaved:"Sazlamalar saklandy",
   toastEditDone:"Gatnawy düzeldildi",toastCsvDone:"CSV ýüklenildi",
   toastOverdue:"tabşyrykda möhlet geçdi",toastOverdueSub:"Tabşyryklar bölümine baryň",
-  completedToast:"Üstünlikli tamamlandy! 🎉",taskCreated:"Tabşyryk üstünlikli döredildi",
+  completedToast:"Tamamlandy!",taskCreated:"Tabşyryk döredildi",
   lateArrival:"giç geldi",onTime:"işe geldi",leftWork:"işden çykdy",
   workSchedule:"Iş:",
-  dept:"Bölüm",depts:"Bölümler",addDept:"Bölüm goş",editDept:"Bölümi üýtget",
-  newDept:"Täze bölüm",deptName:"Bölüm ady",deptNamePh:"mysal: Buhgalteriýa...",
-  noDepts:"Heniz bölüm goşulmady",deptWorkers:"Bölümiň işgärleri",
-  selectDept:"— Bölüm saýlaň —",deptAll:"Ähli bölümler",
-  myDept:"Meniň bölümim",deptManager:"Bölüm başlygy",
-  fileAttach:"Faýl goş",fileAttached:"Faýllar",noFiles:"Faýl goşulmady",
-  fileUpload:"Ýüklenýär...",fileTooBig:"Faýl 10MB-dan uly bolup bilmez!",
-  fileRemove:"Aýyr",fileDownload:"Ýükle",
-  afterHours:"Iş wagty daşynda",afterHoursMsg:"Iş sagady tamamlandy, ýöne giriş bellenildi",
-  beforeHours:"Iş başlamanka",beforeHoursMsg:"Iş sagady başlamanka giriş bellenildi",
 };
 const RU = {
   appSub:"Система Управления Офисом",appSubShort:"Система Управления",
@@ -382,14 +299,14 @@ const RU = {
   navHome:"Главная",navAttend:"Посещаемость",navTasks:"Задачи",
   navAdmin:"Админ",navReport:"Отчёты",
   welcome:"Добро пожаловать",
-  inOffice:"На работе",inProgress:"В процессе",waiting:"К выполнению",done:"Завершено",
+  inOffice:"На работе",inProgress:"В процессе",waiting:"Ожидание",done:"Завершено",
   workers:"Сотрудники",myTasks:"Мои задачи",
   recentActivity:"Последние действия",noActivity:"Нет действий",
   noWorkers:"Сотрудников пока нет",noTasks:"Нет задач",
   workTime:"Рабочее время",overdueAlert:"задач просрочено!",
   dueTodayAlert:"задач истекает сегодня",lateAlert:"Опоздавшие",taskStatus:"Статус задач",
   cameIn:"пришёл на работу",wentOut:"ушёл с работы",
-  myAttend:"Мои Записи Посещаемости",attendTitle:"Учёт посещаемости",
+  myAttend:"Моя посещаемость",attendTitle:"Учёт посещаемости",
   checkIn:"Я пришёл",checkOut:"Ухожу с работы",
   checkInHint:"Нажмите когда пришли на работу",checkOutHint:"Нажмите перед уходом",
   todayDone:"Рабочий день завершён!",
@@ -458,16 +375,6 @@ const RU = {
   completedToast:"Готово!",taskCreated:"Задача создана",
   lateArrival:"опоздал",onTime:"пришёл на работу",leftWork:"ушёл с работы",
   workSchedule:"Работа:",
-  dept:"Отдел",depts:"Отделы",addDept:"Добавить отдел",editDept:"Редактировать отдел",
-  newDept:"Новый отдел",deptName:"Название отдела",deptNamePh:"например: Бухгалтерия...",
-  noDepts:"Отделов пока нет",deptWorkers:"Сотрудники отдела",
-  selectDept:"— Выберите отдел —",deptAll:"Все отделы",
-  myDept:"Мой отдел",deptManager:"Руководитель отдела",
-  fileAttach:"Прикрепить файл",fileAttached:"Файлы",noFiles:"Файлы не прикреплены",
-  fileUpload:"Загрузка...",fileTooBig:"Файл не может быть больше 10МБ!",
-  fileRemove:"Удалить",fileDownload:"Скачать",
-  afterHours:"Вне рабочего времени",afterHoursMsg:"Рабочее время завершено, но отмечен приход",
-  beforeHours:"До начала работы",beforeHoursMsg:"Приход отмечен до начала рабочего времени",
 };
 const EN = {
   appSub:"Office Management System",appSubShort:"Management System",
@@ -481,7 +388,7 @@ const EN = {
   navHome:"Home",navAttend:"Attendance",navTasks:"Tasks",
   navAdmin:"Admin",navReport:"Reports",
   welcome:"Welcome",
-  inOffice:"At Work",inProgress:"In Progress",waiting:"Etmeli",done:"Done",
+  inOffice:"At Work",inProgress:"In Progress",waiting:"To Do",done:"Done",
   workers:"Employees",myTasks:"My Tasks",
   recentActivity:"Recent Activity",noActivity:"No activity yet",
   noWorkers:"No employees yet",noTasks:"No tasks",
@@ -508,7 +415,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"Etmeli",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"To Do",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
@@ -557,16 +464,6 @@ const EN = {
   completedToast:"Done!",taskCreated:"Task created",
   lateArrival:"arrived late",onTime:"arrived",leftWork:"left work",
   workSchedule:"Work:",
-  dept:"Department",depts:"Departments",addDept:"Add Department",editDept:"Edit Department",
-  newDept:"New Department",deptName:"Department Name",deptNamePh:"e.g. Accounting...",
-  noDepts:"No departments yet",deptWorkers:"Department Employees",
-  selectDept:"— Select Department —",deptAll:"All Departments",
-  myDept:"My Department",deptManager:"Department Manager",
-  fileAttach:"Attach File",fileAttached:"Files",noFiles:"No files attached",
-  fileUpload:"Uploading...",fileTooBig:"File cannot exceed 10MB!",
-  fileRemove:"Remove",fileDownload:"Download",
-  afterHours:"Outside work hours",afterHoursMsg:"Work hours ended, but check-in recorded",
-  beforeHours:"Before work hours",beforeHoursMsg:"Check-in recorded before work hours start",
 };
 const LANGS = {tk:TK, ru:RU, en:EN};
 
@@ -665,13 +562,13 @@ const LITE = {
 // ─── Sabit maglumatlar ────────────────────────────────────────
 const AVC  = ["#6B8FFF", "#B07EFF", "#FF7DC6", "#2ECC8F", "#22DDEE"];
 const TKC  = ["#6B8FFF", "#2ECC8F", "#FF6B7A", "#FFB84D", "#B07EFF", "#FF7DC6", "#22DDEE"];
-const COLS = ["Etmeli", "Dowam edýär", "Barlag", "Tamamlandy"];
+const COLS = ["Etmeli", "Alnyp barylýar", "Barlag", "Tamamlandy"];
 
 // Sütün adyny dile görä almak
 function getColLabel(col, tl) {
   const map = {
     "Etmeli": tl.col1,
-    "Dowam edýär": tl.col2,
+    "Alnyp barylýar": tl.col2,
     "Barlag": tl.col3,
     "Tamamlandy": tl.col4,
   };
@@ -681,7 +578,7 @@ function getColLabel(col, tl) {
 
 const CM = {
   "Etmeli":        { c: "#8898B8" },
-  "Dowam edýär":{ c: "#6B8FFF" },
+  "Alnyp barylýar":{ c: "#6B8FFF" },
   "Barlag":        { c: "#FFB84D" },
   "Tamamlandy":    { c: "#2ECC8F" },
 };
@@ -894,21 +791,20 @@ const Pop = ({ C, onClose, children, w = 480 }) => (
   >
     <div style={{
       background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 22,
-      padding: 24, width: "100%", maxWidth: w, maxHeight: "90vh",
+      padding: 28, width: "100%", maxWidth: w, maxHeight: "90vh",
       overflowY: "auto", boxShadow: C.sh, animation: "kPp .25s ease",
-      margin: "0 8px",
     }}>{children}</div>
   </div>
 );
 
-const Deny = ({ C, tl }) => (
+const Deny = ({ C }) => (
   <div style={{
     display: "flex", flexDirection: "column", alignItems: "center",
     justifyContent: "center", minHeight: 300, gap: 16,
   }}>
     <div style={{ color: C.txM }}>{I.lock(C.txM, 52)}</div>
-    <div style={{ fontSize: 20, fontWeight: 900, color: C.tx }}>{tl ? tl.deny : "Rugsat ýok"}</div>
-    <Chip color="#FF6B7A">{tl ? tl.denyMsg : "Siziň bu bölüme girişiňiz çäkli"}</Chip>
+    <div style={{ fontSize: 20, fontWeight: 900, color: C.tx }}>{tl.deny}</div>
+    <Chip color="#FF6B7A">{tl.denyMsg}</Chip>
   </div>
 );
 
@@ -968,7 +864,7 @@ function PwStrength({ pw, match, C }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: meta.c }}>{meta.l}</span>
-        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Üstünlikli saklandy","✓ Gabat gelýär")}</span>}
+        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Saklandy","✓ Gabat gelýär")}</span>}
         {!match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.rd }}>{tl.errPassMatch.slice(0,14)}</span>}
       </div>
     </div>
@@ -1212,7 +1108,7 @@ function Profile({ cu, users, setUsers, setCu, C, onClose, toast, tl }) {
           width: 52, height: 52, borderRadius: 16, flexShrink: 0,
           background: r.c + "22", border: `2px solid ${r.c}44`,
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26,
-        }}>{r.ic(r.c, 22)}</div>
+        }}>{r.ic}</div>
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.tx }}>{tl.profile}</div>
           <RC role={cu.role} />
@@ -1364,29 +1260,15 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
 function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
   const w  = workers.find((x) => x.id === rec.wid);
   const wi = workers.findIndex((x) => x.id === rec.wid);
-  
-  // Bazadaky täze sütün atlaryna görä (check_in we check_out)
-  const [inn, setInn] = useState(rec.check_in || ""); 
-  const [out, setOut] = useState(rec.check_out || "");
+  const [inn, setInn] = useState(rec.inn || "");
+  const [out, setOut] = useState(rec.out || "");
   const [err, setErr] = useState("");
 
   const save = () => {
-    // Wagtyň formatyny barlamak (00:00)
-    if (!inn.match(/^\d{2}:\d{2}$/)) { setErr(tl.errEntryFormat); return; }
-    if (out && !out.match(/^\d{2}:\d{2}$/)) { setErr(tl.errExitFormat); return; }
-    
-    // Çykyş wagty girişden öň bolmaly däl (tMin funksiýasy kodyňyzda bar diýip hasap edýärin)
-    if (out && typeof tMin === 'function' && tMin(out) <= tMin(inn)) { 
-      setErr(tl.errExitBefore); return; 
-    }
-
-    // Baza täze sütün atlary bilen ugradýarys
-    onSave({ 
-      ...rec, 
-      check_in: inn, 
-      check_out: out || null, 
-      edited: true 
-    });
+    if (!inn.match(/^\d{2}:\d{2}$/))             { setErr(tl.errEntryFormat); return; }
+    if (out && !out.match(/^\d{2}:\d{2}$/))      { setErr(tl.errExitFormat); return; }
+    if (out && tMin(out) <= tMin(inn))            { setErr(tl.errExitBefore); return; }
+    onSave({ ...rec, inn, out: out || null, edited: true });
     onClose();
   };
 
@@ -1411,7 +1293,7 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
         <Av a={w ? w.av : "?"} i={wi >= 0 ? wi : 0} z={38} />
         <div>
           <div style={{ fontWeight: 800, color: C.tx }}>{w ? w.name : "?"}</div>
-          <div style={{ fontSize: 12, color: C.txS }}>{fmtDate(rec.date)}</div>
+          <div style={{ fontSize: 12, color: C.txS }}>{rec.date}</div>
         </div>
         <Chip color={C.yw} sm>{tl.edits}</Chip>
       </div>
@@ -1470,29 +1352,29 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
 // ═══════════════════════════════════════════════════════════════
 // BAŞ SAHYPA (DASHBOARD)
 // ═══════════════════════════════════════════════════════════════
-function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
+function Dash({ workers, tasks, attend, C, mob, cu, settings, tl }) {
   const isI  = cu.role === "ishgar";
   const myT  = isI ? tasks.filter((t) => t.who === cu.wid) : tasks;
   const todA = attend.filter((a) => a.date === gToday());
   const myW  = workers.find((w) => w.id === cu.wid);
 
-  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(dlToTk(t.dl), gToday()) < 0);
+  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(gToday(), dlToTk(t.dl)) < 0);
   const dueToday = tasks.filter((t) => t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy");
   const lateW    = !isI ? workers.filter((w) => {
     const r = todA.find((a) => a.wid === w.id);
-    return r && !r.edited && tMin(r.check_in) > tMin(settings.workStart) + settings.lateLimit;
+    return r && !r.edited && tMin(r.inn) > tMin(settings.workStart) + settings.lateLimit;
   }) : [];
 
   const stats = [
     ...(!isI ? [{ l: tl.inOffice, v: workers.filter((w) => w.status === "işde").length, tot: workers.length, ic: I.workers(C.gn,22), c: C.gn }] : []),
-    { l: tl.inProgress, v: myT.filter((t) => t.col === "Dowam edýär").length, tot: myT.length, ic: I.alert(C.ac,22), c: C.ac },
+    { l: tl.inProgress, v: myT.filter((t) => t.col === "Alnyp barylýar").length, tot: myT.length, ic: I.alert(C.ac,22), c: C.ac },
     { l: tl.waiting,  v: myT.filter((t) => t.col === "Etmeli").length,          tot: myT.length, ic: I.tasks(C.yw,22), c: C.yw },
     { l: tl.done,  v: myT.filter((t) => t.col === "Tamamlandy").length,       tot: myT.length, ic: I.check(C.pu,22), c: C.pu },
   ];
 
   const act = [
-    ...todA.filter((a) => a.check_out).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.check_out, ic: "🚪" }; }),
-    ...todA.filter((a) => a.check_in).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.cameIn}`,   time: a.check_in, ic: I.check(C.pu,22) }; }),
+    ...todA.filter((a) => a.out).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.out, ic: "🚪" }; }),
+    ...todA.filter((a) => a.inn).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.cameIn}`,   time: a.inn, ic: I.check(C.pu,22) }; }),
   ].sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
 
   return (
@@ -1530,7 +1412,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
             {tl.welcome}, {cu.name.split(" ")[0]}! 👋
           </div>
           <div style={{ fontSize: 13, color: C.txS, marginTop: 5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {fmtDate(gToday())} <RC role={cu.role} />
+            {gToday()} <RC role={cu.role} />
           </div>
           {!isI && (
             <div style={{ fontSize: 12, color: C.txS, marginTop: 4 }}>
@@ -1546,7 +1428,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{myW.name}</div>
               <div style={{ fontSize: 12, color: C.txS }}>{myW.pos}</div>
               <Chip color={myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}
+                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ —"}
               </Chip>
             </div>
           </div>
@@ -1566,7 +1448,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
       </div>
 
       {/* Statistika kartalar */}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${mob ? 2 : stats.length},1fr)`, fontSize: mob ? 11 : 14, gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${mob ? 2 : stats.length},1fr)`, gap: 12 }}>
         {stats.map((s) => (
           <div key={s.l} className="kc" style={{ background: C.cd, border: `1px solid ${C.bd}`, borderTop: `3px solid ${s.c}`, borderRadius: 17, padding: 16, transition: "all .2s" }}>
             <div style={{ fontSize: 22, marginBottom: 7 }}>{s.ic}</div>
@@ -1588,7 +1470,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               {workers.length === 0 && <div style={{ color: C.txM, fontSize: 13, textAlign: "center" }}>{tl.noWorkers}</div>}
               {workers.map((w, i) => {
                 const rec  = attend.find((a) => a.wid === w.id && a.date === gToday());
-                const late = rec && !rec.edited && tMin(rec.check_in) > tMin(settings.workStart) + settings.lateLimit;
+                const late = rec && !rec.edited && tMin(rec.inn) > tMin(settings.workStart) + settings.lateLimit;
                 return (
                   <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 12, border: `1px solid ${C.bdS}` }}>
                     <Av a={w.av} i={i} z={36} />
@@ -1597,8 +1479,8 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
                       <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
                     </div>
                     <div style={{ display: "flex", gap: 5 }}>
-                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç geldi</span></Chip>}
-                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
+                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç</span></Chip>}
+                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ —"}</Chip>
                     </div>
                   </div>
                 );
@@ -1614,12 +1496,12 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {myT.length === 0 && <div style={{ color: C.txM, fontSize: 13 }}>{tl.noTasksCol}</div>}
                 {myT.slice(0, 5).map((t) => {
-                  const ov = t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy";
+                  const ov = t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy";
                   const du = t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy";
                   return (
                     <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${ov ? C.rd : du ? C.yw : t.clr}` }}>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: mob ? 12 : 13, color: C.tx }}>{t.title}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: C.tx }}>{t.title}</div>
                         {t.dl && <div style={{ fontSize: 11, color: ov ? C.rd : du ? C.yw : C.txS, marginTop: 1 }}>{ov ? tl.overdueTask : du ? tl.dueTodayTask : "📅 " + dlToTk(t.dl)}</div>}
                       </div>
                       <Chip color={CM[t.col].c} sm>{getColLabel(t.col,tl).split(" ")[0]}</Chip>
@@ -1630,20 +1512,17 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
             </div>
           ) : (
             <div style={{ background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 17, padding: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: C.tx, marginBottom: 14 }}>{tl.taskStatus}</div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80, padding: "0 4px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.txS, marginBottom: 12, textTransform: "uppercase", letterSpacing: ".07em" }}>{tl.taskStatus}</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 72 }}>
                 {COLS.map((col) => {
-                  const cnt  = tasks.filter((t) => t.col === col).length;
-                  const total= tasks.length || 1;
-                  const pct  = cnt / total;
-                  const h    = Math.max(12, Math.round(pct * 60));
-                  const clr  = CM[col].c;
-                  const lbl  = getColLabel(col, tl);
+                  const cnt = tasks.filter((t) => t.col === col).length;
+                  const h   = tasks.length ? Math.max(10, cnt / tasks.length * 64) : 10;
+                  const clr = CM[col].c;
                   return (
-                    <div key={col} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
-                      <span style={{ fontSize: 13, fontWeight: 900, color: clr, lineHeight: 1 }}>{cnt}</span>
-                      <div style={{ width: "80%", height: h, borderRadius: "4px 4px 0 0", background: `linear-gradient(180deg,${clr},${clr}55)`, transition: "height .6s ease" }} />
-                      <span style={{ fontSize: 9, color: C.txM, textAlign: "center", width: "100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{lbl.split(" ")[0]}</span>
+                    <div key={col} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 12, fontWeight: 900, color: clr }}>{cnt}</span>
+                      <div style={{ width: "100%", height: h, borderRadius: "5px 5px 0 0", background: `linear-gradient(180deg,${clr},${clr}66)`, transition: "height .7s" }} />
+                      <span style={{ fontSize: 9, color: C.txM, textAlign: "center" }}>{getColLabel(col,tl).split(" ")[0]}</span>
                     </div>
                   );
                 })}
@@ -1686,48 +1565,41 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
 
   const doIn = async (wid) => {
     if (getRec(wid)) return;
-    const now     = gNow();
-    const nowMin  = tMin(now);
-    const startMin= tMin(settings.workStart);
-    const endMin  = tMin(settings.workEnd);
-    const late    = nowMin > startMin + settings.lateLimit;
-    const afterWH = nowMin > endMin;
-    const beforeWH= nowMin < startMin;
-    const w  = workers.find((x) => x.id === wid);
-    const nm = w ? w.name : "?";
+    const now  = gNow();
+    const late = tMin(now) > tMin(settings.workStart) + settings.lateLimit;
     try {
-      const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
+      const newA = { id: uid(), wid, date: gToday(), inn: now, out: null, edited: false };
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
       setAttend((p) => [...p, newA]);
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
-      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
-      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
-      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart})`, "info");
-      else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    const w = workers.find((x) => x.id === wid);
+    const nm = w ? w.name : "?";
+    if (late) toast(`${nm} ${tl.lateArrival}`, `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart})`, "info");
+    else       toast(`${nm} ${tl.onTime}`, `Giriş: ${now}`, "ok");
   };
 
   const doOut = async (wid) => {
     const now = gNow();
     try {
-      const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.check_out);
-      if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { check_out: now });
+      const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.out);
+      if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { out: now });
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "öýde" });
-      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
+      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.out ? { ...a, out: now } : a));
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     const w = workers.find((x) => x.id === wid);
-    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now}`, "info");
+    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `Çykyş: ${now}`, "info");
   };
 
   const saveEdit = async (upd) => {
     try {
-      await sbFetch(`attend?id=eq.${upd.id}`, "PATCH", { check_in: upd.check_in, check_out: upd.check_out, edited: true });
+      await sbFetch(`attend?id=eq.${upd.id}`, "PATCH", { inn: upd.inn, out: upd.out, edited: true });
       setAttend((p) => p.map((a) => a.id === upd.id ? upd : a));
       if (upd.date === gToday()) {
-        await sbFetch(`workers?id=eq.${upd.wid}`, "PATCH", { status: upd.check_out ? "öýde" : "işde" });
-        setWorkers((p) => p.map((w) => w.id === upd.wid ? { ...w, status: upd.check_out ? "öýde" : "işde" } : w));
+        await sbFetch(`workers?id=eq.${upd.wid}`, "PATCH", { status: upd.out ? "öýde" : "işde" });
+        setWorkers((p) => p.map((w) => w.id === upd.wid ? { ...w, status: upd.out ? "öýde" : "işde" } : w));
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
     toast(tl.toastEditDone, "", "ok");
@@ -1746,15 +1618,15 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const myWid = cu.wid;
     const myW   = workers.find((w) => w.id === myWid);
     const rec   = getRec(myWid);
-    const isIn  = !!rec && !rec.check_out;
-    const isDone= !!(rec && rec.check_out);
+    const isIn  = !!rec && !rec.out;
+    const isDone= !!(rec && rec.out);
     const myHist= attend.filter((a) => a.wid === myWid).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "kUp .35s" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <STit icon={I.calendar(C.txS,17)} t={tl.myAttend} C={C} mb={0} />
-          <Chip color={C.ac}>{fmtDate(gToday())}</Chip>
+          <Chip color={C.ac}>{gToday()}</Chip>
         </div>
 
         <div style={{ background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 22, padding: mob ? "18px" : "26px", textAlign: "center" }}>
@@ -1764,7 +1636,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <div style={{ fontWeight: 900, fontSize: 18, color: C.tx }}>{myW ? myW.name : "Işgär"}</div>
               <div style={{ fontSize: 13, color: C.txS }}>{myW ? myW.pos : ""}</div>
               <Chip color={myW && myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ Ýok"}
+                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ —"}
               </Chip>
             </div>
           </div>
@@ -1774,19 +1646,17 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           </div>
 
           {/* Giriş/Çykyş wagtlary */}
-          <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-            <div style={{ textAlign:"center", background:C.sf, borderRadius:14, padding:"12px 20px", border:`1px solid ${C.gn}44`, minWidth:90 }}>
-              <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>{tl.entry}</div>
-              <div style={{ fontSize:28, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</div>
-            </div>
-            <div style={{ textAlign:"center", background:C.sf, borderRadius:14, padding:"12px 20px", border:`1px solid ${C.rd}44`, minWidth:90 }}>
-              <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>{tl.exit}</div>
-              <div style={{ fontSize:28, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</div>
-            </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: mob ? 18 : 36, marginBottom: 24 }}>
+            {[[tl.entry, rec ? rec.inn : null, C.gn], [tl.logout, rec ? rec.out : null, C.rd]].map(([l, val, cl]) => (
+              <div key={l} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 5 }}>{l}</div>
+                <div style={{ fontSize: mob ? 26 : 34, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
+              </div>
+            ))}
             {isDone && (
-              <div style={{ textAlign:"center", background:C.sf, borderRadius:14, padding:"12px 20px", border:`1px solid ${C.pu}44`, minWidth:90 }}>
-                <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>⏱ Işlän</div>
-                <div style={{ fontSize:24, fontWeight:900, color:C.pu }}>{calcH(rec.check_in, rec.check_out)}</div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 5 }}>⏱ Işlän</div>
+                <div style={{ fontSize: mob ? 22 : 28, fontWeight: 900, color: C.pu }}>{calcH(rec.inn, rec.out)}</div>
               </div>
             )}
           </div>
@@ -1794,7 +1664,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {!rec && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <button onClick={() => doIn(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.gn},#0DBF7A)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.gn}44`, transition: "all .2s" }}>
-                Işe geldim ✅
+                ✅ Işe geldim
               </button>
               <div style={{ fontSize: 12, color: C.txM }}>{tl.checkInHint}</div>
             </div>
@@ -1802,7 +1672,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {isIn && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <div style={{ background: C.gnS, border: `1px solid ${C.gn}44`, borderRadius: 13, padding: "11px 22px", marginBottom: 4 }}>
-                <div style={{ fontSize: 13, color: C.gn, fontWeight: 700 }}>{`✅ ${rec.check_in} — ${tl.atWork}`}</div>
+                <div style={{ fontSize: 13, color: C.gn, fontWeight: 700 }}>{`✅ ${rec.inn} — ${tl.atWork}`}</div>
               </div>
               <button onClick={() => doOut(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.rd},#e04050)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.rd}44`, transition: "all .2s" }}>
                 {tl.checkOut}
@@ -1815,7 +1685,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <span>{I.celebrate(C.ac, 22)}</span>
               <div style={{ textAlign: "left" }}>
                 <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{tl.todayDone}</div>
-                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.check_in} — {rec.check_out} · {calcH(rec.check_in, rec.check_out)}</div>
+                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.inn} — {rec.out} · {calcH(rec.inn, rec.out)}</div>
               </div>
             </div>
           )}
@@ -1827,14 +1697,14 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {myHist.length === 0 && <div style={{ color: C.txM, fontSize: 13, textAlign: "center" }}>{tl.noRecord}</div>}
             {myHist.map((a) => (
-              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.check_out ? C.ac : C.gn}` }}>
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.out ? C.ac : C.gn}` }}>
                 <div style={{ fontSize: 12, color: C.txS, minWidth: 86, fontWeight: 600 }}>
-                  {a.date === gToday() ? "🔵 Şu gün" : fmtDate(a.date)}
+                  {a.date === gToday() ? "🔵 Şu gün" : a.date}
                 </div>
-                <Chip color={C.gn} sm>{a.check_in}</Chip>
+                <Chip color={C.gn} sm>{a.inn}</Chip>
                 <span style={{ color: C.txM, fontSize: 12 }}>→</span>
-                {a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ fontSize: 12, color: C.gn, fontWeight: 700 }}>{tl.atWork}</span>}
-                {a.check_out && <Chip color={C.pu} sm>{calcH(a.check_in, a.check_out)}</Chip>}
+                {a.out ? <Chip color={C.rd} sm>{a.out}</Chip> : <span style={{ fontSize: 12, color: C.gn, fontWeight: 700 }}>{tl.atWork}</span>}
+                {a.out && <Chip color={C.pu} sm>{calcH(a.inn, a.out)}</Chip>}
                 {a.edited && <Chip color={C.yw} sm>{I.edit(C.yw,11)}</Chip>}
               </div>
             ))}
@@ -1850,25 +1720,25 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     .filter((a) => filterWid === "all" || a.wid === filterWid)
     .filter((a) => {
       if (filterMonth === "all") return true;
-      // a.date = YYYY-MM-DD formatynda
-      return a.date && a.date.slice(0, 7) === filterMonth;
+      const p = a.date.split(".");
+      return `${p[2]}-${p[1]}` === filterMonth;
     })
-    .sort((a, b) => { const dd = b.date.localeCompare(a.date); return dd !== 0 ? dd : (b.check_in||"").localeCompare(a.check_in||""); });
+    .sort((a, b) => b.date.localeCompare(a.date) || b.inn.localeCompare(a.inn));
 
   const months = [...new Set(
-    attend.filter((a) => in3M(a.date) && a.date).map((a) => a.date.slice(0, 7))
+    attend.filter((a) => in3M(a.date)).map((a) => { const p = a.date.split("."); return `${p[2]}-${p[1]}`; })
   )].sort().reverse();
 
   const exportCSV = () => {
     const rows = hist.slice(0, 500).map((a) => {
       const w = workers.find((x) => x.id === a.wid);
-      return `${w ? w.name : "?"}|${a.date}|${a.check_in}|${a.check_out || tl.inOffice}|${calcH(a.check_in, a.check_out) || "—"}|${a.edited ? tl.edited : ""}`;
+      return `${w ? w.name : "?"}|${a.date}|${a.inn}|${a.out || tl.inOffice}|${calcH(a.inn, a.out) || "—"}|${a.edited ? tl.edited : ""}`;
     }).join("\n");
     const csv  = `${tl.workerCol}|${tl.dateCol}|${tl.entryCol}|${tl.exitCol}|${tl.workedCol}|${tl.noteCol}\n` + rows;
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const url  = URL.createObjectURL(blob);
     const el   = document.createElement("a");
-    el.href = url; el.download = `gatnawy_${gToday()}.csv`; el.click();
+    el.href = url; el.download = `gatnawy_${gToday().replace(/\./g, "-")}.csv`; el.click();
     URL.revokeObjectURL(url);
     toast(tl.toastCsvDone, "Faýl saklandi", "ok");
   };
@@ -1877,7 +1747,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "kUp .35s" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <STit icon={I.calendar(C.txS,17)} t={tl.attendTitle} C={C} mb={0} />
-        <Chip color={C.ac}>{fmtDate(gToday())}</Chip>
+        <Chip color={C.ac}>{gToday()}</Chip>
       </div>
 
       {/* Şu günki kartalar */}
@@ -1889,48 +1759,37 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
         )}
         {workers.map((w, i) => {
           const rec  = getRec(w.id);
-          const isIn = !!rec && !rec.check_out;
-          const done = !!(rec && rec.check_out);
-          const late = rec && !rec.edited && tMin(rec.check_in) > tMin(settings.workStart) + settings.lateLimit;
+          const isIn = !!rec && !rec.out;
+          const done = !!(rec && rec.out);
+          const late = rec && !rec.edited && tMin(rec.inn) > tMin(settings.workStart) + settings.lateLimit;
           return (
-            <div key={w.id} className="kc" style={{
-              background: C.cd, border: `1px solid ${C.bd}`,
-              borderLeft: `5px solid ${isIn ? C.gn : done ? C.ac : C.bd}`,
-              borderRadius: 17, padding: "14px 16px",
-              display: "flex", flexDirection: "column", gap: 10,
-              transition: "all .2s"
-            }}>
-              {/* Ýokarky setir — işgär maglumaty */}
-              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                <Av a={w.av} i={i} z={42} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: C.tx, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{w.name}</div>
-                  <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
-                </div>
-                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:3}}>{I.warning(C.yw,10)} Giç</span></Chip>}
+            <div key={w.id} className="kc" style={{ background: C.cd, border: `1px solid ${C.bd}`, borderLeft: `5px solid ${isIn ? C.gn : done ? C.ac : C.bd}`, borderRadius: 17, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14, flexWrap: mob ? "wrap" : "nowrap", transition: "all .2s" }}>
+              <Av a={w.av} i={i} z={44} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: C.tx }}>{w.name}</div>
+                <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
               </div>
-              {/* Aşaky setir — wagt + düwmeler */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                {/* Giriş */}
-                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.gn}33` }}>
-                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.entry}</span>
-                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</span>
-                </div>
-                {/* Çykyş */}
-                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.rd}33` }}>
-                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.exit}</span>
-                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
-                </div>
-                {/* Işlän wagt */}
-                {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
-                {/* Düwmeler — sagda */}
-                <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
-                  {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
-                  {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.door(C.rd,13)} Gitdi</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
-                  {done && !isAdmin && <Chip color={C.ac} sm>✓ Tamam</Chip>}
-                  {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
-                  {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), check_in: "", check_out: null, edited: false, _new: true })} />}
-                </div>
+              <div style={{ display: "flex", gap: mob ? 10 : 22, alignItems: "center", flexWrap: "wrap" }}>
+                {[[tl.entry, rec ? rec.inn : null, C.gn], [tl.logout, rec ? rec.out : null, C.rd]].map(([l, val, cl]) => (
+                  <div key={l} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
+                    <div style={{ fontSize: 19, fontWeight: 900, color: val ? cl : C.txM, fontVariantNumeric: "tabular-nums" }}>{val || "—:—"}</div>
+                  </div>
+                ))}
+                {done && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.txM, textTransform: "uppercase", marginBottom: 2 }}>{tl.hoursCol}</div>
+                    <Chip color={C.pu}>{calcH(rec.inn, rec.out)}</Chip>
+                  </div>
+                )}
+                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç</span></Chip>}
+              </div>
+              <div style={{ display: "flex", gap: 7, flexShrink: 0, flexWrap: "wrap" }}>
+                {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:5}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
+                {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:5}}>{I.door(C.rd,13)} {tl.leftWork}</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
+                {done && !isAdmin && <Chip color={C.ac}><span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.ac,12)} Tamam</span></Chip>}
+                {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
+                {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), inn: "", out: null, edited: false, _new: true })} />}
               </div>
             </div>
           );
@@ -1951,7 +1810,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 <option value="all">{tl.allMonths}</option>
                 {months.map((m) => {
                   const [y, mo] = m.split("-");
-                  const mn = ["Ýanwar","Fewral","Mart","Aprel","Maý","Iýun","Iýul","Awgust","Sentýabr","Oktýabr","Noýabr","Dekabr"][+mo - 1];
+                  const mn = ["Ýan","Few","Mart","Apr","Maý","Iýun","Iýul","Awg","Sen","Okt","Noý","Dek"][+mo - 1];
                   return <option key={m} value={m}>{mn} {y}</option>;
                 })}
               </select>
@@ -1962,8 +1821,8 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {/* Jemi san */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 14 }}>
             {[
-              { l: tl.totalDays,  v: hist.filter((a) => a.check_out).length, c: C.ac },
-              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + " sa", c: C.gn },
+              { l: tl.totalDays,  v: hist.filter((a) => a.out).length, c: C.ac },
+              { l: tl.totalHours,v: (hist.filter((a) => a.out).reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0) / 60).toFixed(1) + "s", c: C.gn },
               { l: tl.edits,  v: hist.filter((a) => a.edited).length, c: C.yw },
             ].map((s) => (
               <div key={s.l} style={{ background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 11, padding: "9px 13px", textAlign: "center" }}>
@@ -1984,9 +1843,9 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {hist.slice(0, 200).map((a) => {
                   const w    = workers.find((x) => x.id === a.wid);
                   const wi   = workers.findIndex((x) => x.id === a.wid);
-                  const h    = calcH(a.check_in, a.check_out);
+                  const h    = calcH(a.inn, a.out);
                   const tod  = a.date === gToday();
-                  const late = !a.edited && tMin(a.check_in) > tMin(settings.workStart) + settings.lateLimit;
+                  const late = !a.edited && tMin(a.inn) > tMin(settings.workStart) + settings.lateLimit;
                   return (
                     <tr key={a.id} style={{ borderBottom: `1px solid ${C.bdS}`, background: tod ? C.acG : "transparent" }}>
                       <td style={{ padding: "10px 12px" }}>
@@ -1995,19 +1854,18 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                           <span style={{ fontWeight: 700, color: C.tx }}>{w ? w.name : "?"}</span>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px", color: C.txS, whiteSpace: "nowrap" }}>{fmtDate(a.date)}</td>
+                      <td style={{ padding: "10px 12px", color: C.txS, whiteSpace: "nowrap" }}>{a.date}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          <Chip color={late ? C.yw : C.gn} sm>{a.check_in}</Chip>
+                          <Chip color={late ? C.yw : C.gn} sm>{a.inn}</Chip>
                           {late && <Chip color={C.yw} sm>Giç</Chip>}
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px" }}>{a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ color: C.txM }}>{tl.atWork}</span>}</td>
-                      <td style={{ padding: "10px 12px" }}>{h ? <Chip color={C.pu} sm>{h}</Chip> : <span style={{ color:C.txM, fontSize:12 }}>—</span>}</td>
+                      <td style={{ padding: "10px 12px" }}>{a.out ? <Chip color={C.rd} sm>{a.out}</Chip> : <span style={{ color: C.txM }}>{tl.atWork}</span>}</td>
+                      <td style={{ padding: "10px 12px" }}>{h ? <Chip color={C.pu} sm>{h}</Chip> : <span style={{ color: C.txM }}>—</span>}</td>
                       <td style={{ padding: "10px 12px" }}>
-                        {a.edited && <Chip color={C.yw} sm>✏️ {tl.edited}</Chip>}
-                        {tod && !a.edited && <Chip color={C.gn} sm>✓ {tl.today}</Chip>}
-                        {!a.edited && !tod && <span style={{color:C.txM, fontSize:11}}>—</span>}
+                        {a.edited && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.edit(C.yw,11)} {tl.edited}</span></Chip>}
+                        {tod && !a.edited && <Chip color={C.gn} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,11)} {tl.today}</span></Chip>}
                       </td>
                       <td style={{ padding: "10px 12px" }}>
                         <button onClick={() => setEditRec(a)} style={{ padding: "2px 9px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: `1px solid ${C.yw}44`, background: C.ywS, color: C.yw }}>{I.edit(C.txS,13)}</button>
@@ -2034,9 +1892,9 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               const { _new, ...clean } = r;
               try {
                 await sbFetch("attend", "POST", clean);
-                await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.check_out ? "öýde" : "işde" });
+                await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.out ? "öýde" : "işde" });
                 setAttend((p) => [...p, clean]);
-                setWorkers((p) => p.map((w) => w.id === clean.wid && clean.date === gToday() ? { ...w, status: clean.check_out ? "öýde" : "işde" } : w));
+                setWorkers((p) => p.map((w) => w.id === clean.wid && clean.date === gToday() ? { ...w, status: clean.out ? "öýde" : "işde" } : w));
               } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
             } else {
               saveEdit(r);
@@ -2057,34 +1915,9 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
   const isI = cu.role === "ishgar";
   const [f, setF] = useState(task || {
     title: "", desc: "", who: isI ? cu.wid : (workers[0] ? workers[0].id : ""),
-    pri: "orta", col: "Etmeli", clr: TKC[0], dl: "", comments: [], files: [],
+    pri: "orta", col: "Etmeli", clr: TKC[0], dl: "", comments: [],
   });
   const s = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const [uploading, setUploading] = useState(false);
-  const [uploadErr, setUploadErr] = useState("");
-  const fileRef = useRef(null);
-
-  const handleFiles = async (e) => {
-    const picked = Array.from(e.target.files || []);
-    if (!picked.length) return;
-    setUploadErr("");
-    for (const file of picked) {
-      if (file.size > 10 * 1024 * 1024) { setUploadErr(tl.fileTooBig); return; }
-    }
-    setUploading(true);
-    try {
-      const taskId = f.id || uid();
-      if (!f.id) s("id", taskId);
-      const uploaded = await Promise.all(picked.map(file => uploadFile(file, taskId)));
-      s("files", [...(f.files || []), ...uploaded]);
-    } catch(e) { setUploadErr(e.message); }
-    setUploading(false);
-    e.target.value = "";
-  };
-
-  const removeFile = (idx) => {
-    s("files", (f.files || []).filter((_,i) => i !== idx));
-  };
 
   return (
     <Pop C={C} onClose={onClose}>
@@ -2132,13 +1965,6 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
               onChange={(e) => s("dl", e.target.value)}
               style={{ width: "100%", padding: "9px 12px", borderRadius: 11, background: C.sf, border: `1.5px solid ${C.bd}`, color: C.tx, fontSize: 13, fontFamily: "inherit" }}
             />
-            {f.dl && (() => {
-              const today = new Date(); today.setHours(0,0,0,0);
-              const dl = new Date(f.dl); dl.setHours(0,0,0,0);
-              return dl < today ? (
-                <div style={{ fontSize: 11, color: C.yw, marginTop: 4, fontWeight: 700 }}>⚠️ Saýlanan sene geçdi!</div>
-              ) : null;
-            })()}
           </div>
         </div>
 
@@ -2151,37 +1977,11 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
           </div>
         </div>
 
-        {/* Faýl goşmak */}
-        <div>
-          <Lbl t={tl.fileAttach} C={C} />
-          <input ref={fileRef} type="file" multiple accept=".doc,.docx,.xls,.xlsx,.pdf,.txt,.ppt,.pptx,.png,.jpg,.jpeg,.zip,.rar" onChange={handleFiles} style={{ display: "none" }} />
-          <button type="button" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading}
-            style={{ width:"100%", padding:"10px 14px", borderRadius:11, background:C.sf, border:`1.5px dashed ${C.bd}`, color:C.txS, cursor:"pointer", fontSize:13, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-            {uploading ? <>⏳ {tl.fileUpload}</> : <>📎 {tl.fileAttach}</>}
-          </button>
-          {uploadErr && <div style={{ fontSize:11, color:C.rd, marginTop:4 }}>⚠️ {uploadErr}</div>}
-          {(f.files||[]).length > 0 && (
-            <div style={{ display:"flex", flexDirection:"column", gap:5, marginTop:8 }}>
-              {(f.files||[]).map((fl,idx) => (
-                <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 11px", background:C.sf, border:`1px solid ${C.bd}`, borderRadius:9 }}>
-                  <span style={{ fontSize:18 }}>{fileIcon(fl.ext)}</span>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:C.tx, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fl.name}</div>
-                    <div style={{ fontSize:10, color:C.txM }}>{fmtSize(fl.size)}</div>
-                  </div>
-                  <a href={getFileUrl(fl.path)} target="_blank" rel="noreferrer" style={{ color:C.ac, fontSize:11, fontWeight:700, textDecoration:"none" }}>⬇</a>
-                  <button type="button" onClick={() => removeFile(idx)} style={{ background:"none", border:"none", cursor:"pointer", color:C.rd, fontSize:14, fontWeight:700 }}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
           <Btn ch={tl.cancel} v="gh" onClick={onClose} sx={{ color: C.txS, border: `1px solid ${C.bd}` }} />
           <Btn ch={task ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.save}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={() => {
             if (f.title.trim()) {
-              onSave({ ...f, id: f.id || (task ? task.id : uid()), comments: f.comments || [], files: f.files || [] });
+              onSave({ ...f, id: task ? task.id : uid(), comments: f.comments || [] });
               onClose();
             }
           }} />
@@ -2197,7 +1997,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
   const wi   = workers.findIndex((x) => x.id === task.who);
   const pm   = PM[task.pri] || PM.orta;
   const cmts = task.comments || [];
-  const isOv = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
+  const isOv = task.dl && dDiff(gToday(), dlToTk(task.dl)) < 0 && task.col !== "Tamamlandy";
   const isDu = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
 
   const addCmt = () => {
@@ -2229,26 +2029,6 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
         <div style={{ background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 12, padding: "11px 15px", fontSize: 13, color: C.tx, lineHeight: 1.6, marginBottom: 14 }}>{task.desc}</div>
       )}
 
-      {/* Faýllar */}
-      {(task.files||[]).length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:C.txS, marginBottom:7 }}>📎 {tl.fileAttached} ({task.files.length})</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-            {task.files.map((fl,idx) => (
-              <a key={idx} href={getFileUrl(fl.path)} target="_blank" rel="noreferrer"
-                style={{ display:"flex", alignItems:"center", gap:9, padding:"8px 12px", background:C.sf, border:`1px solid ${C.bd}`, borderRadius:10, textDecoration:"none" }}>
-                <span style={{ fontSize:20 }}>{fileIcon(fl.ext)}</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:C.tx, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fl.name}</div>
-                  <div style={{ fontSize:10, color:C.txM }}>{fmtSize(fl.size)}</div>
-                </div>
-                <span style={{ fontSize:12, color:C.ac, fontWeight:700 }}>⬇ {tl.fileDownload}</span>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
       {w && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, padding: "9px 13px", background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 12 }}>
           <Av a={w.av} i={wi >= 0 ? wi : 0} z={34} />
@@ -2271,7 +2051,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                   <span style={{ fontSize: 13 }}>{r ? r.ic(r.c, 20) : "?"}</span>
                   <span style={{ fontWeight: 700, fontSize: 12, color: C.tx }}>{c.author}</span>
-                  <span style={{ fontSize: 10, color: C.txM, marginLeft: "auto" }}>{fmtDate(c.date)} {c.time}</span>
+                  <span style={{ fontSize: 10, color: C.txM, marginLeft: "auto" }}>{c.date} {c.time}</span>
                 </div>
                 <div style={{ fontSize: 13, color: C.tx, lineHeight: 1.5 }}>{c.text}</div>
               </div>
@@ -2295,7 +2075,7 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
   const w      = workers.find((x) => x.id === task.who);
   const wi     = workers.findIndex((x) => x.id === task.who);
   const pm     = PM[task.pri] || PM.orta;
-  const isOv   = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
+  const isOv   = task.dl && dDiff(gToday(), dlToTk(task.dl)) < 0 && task.col !== "Tamamlandy";
   const isDu   = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
   const cmts   = (task.comments || []).length;
 
@@ -2321,9 +2101,8 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
           <Av a={w ? w.av : "?"} i={wi >= 0 ? wi : 0} z={20} />
           <span style={{ fontSize: 11, color: C.txS }}>{w ? w.name.split(" ")[0] : "?"}</span>
         </div>
-        <div style={{ display: "flex", gap: 5, flexWrap:"wrap" }}>
+        <div style={{ display: "flex", gap: 5 }}>
           {cmts > 0 && <Chip color={C.txS} sm>💬{cmts}</Chip>}
-          {(task.files||[]).length > 0 && <Chip color={C.ac} sm>📎{task.files.length}</Chip>}
           <Chip color={pm.c} sm>{pm.l}</Chip>
         </div>
       </div>
@@ -2353,7 +2132,7 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
   const saveTask = async (t) => {
     try {
       // JS 'desc' -> DB 'description' mapping
-      const dbT = { id: t.id, title: t.title, description: t.desc || t.description || "", who: t.who, pri: t.pri, col: t.col, clr: t.clr, dl: t.dl || null, comments: t.comments || [], files: t.files || [] };
+      const dbT = { id: t.id, title: t.title, description: t.desc || t.description || "", who: t.who, pri: t.pri, col: t.col, clr: t.clr, dl: t.dl || null, comments: t.comments || [] };
       const exists = tasks.find((x) => x.id === t.id);
       if (exists) {
         await sbFetch(`tasks?id=eq.${t.id}`, "PATCH", dbT);
@@ -2381,7 +2160,7 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
-  const overdue = vis.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
+  const overdue = vis.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "kUp .35s" }}>
@@ -2461,39 +2240,26 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
 // ═══════════════════════════════════════════════════════════════
 // ADMIN PANELI
 // ═══════════════════════════════════════════════════════════════
-function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, cu, settings, setSettings, toast, tl }) {
-  if (cu.role !== "admin") return <Deny C={C} tl={tl} />;
+function Admin({ workers, setWorkers, users, setUsers, C, mob, cu, settings, setSettings, toast, tl }) {
+  if (cu.role !== "admin") return <Deny C={C} />;
 
   const [sub,  setSub]  = useState("workers");
   const [wMod, setWMod] = useState(false);
   const [uMod, setUMod] = useState(false);
   const [sMod, setSMod] = useState(false);
-  const [dMod, setDMod] = useState(false);
   const [eW,   setEW]   = useState(null);
   const [eU,   setEU]   = useState(null);
-  const [eD,   setED]   = useState(null);
-  const [wF,   setWF]   = useState({ name: "", pos: "", av: "", dept_id: "" });
+  const [wF,   setWF]   = useState({ name: "", pos: "", av: "" });
   const [uF,   setUF]   = useState({ username: "", password: "", role: "ishgar", name: "", wid: "" });
-  const [dF,   setDF]   = useState({ name: "" });
 
-  const openW = (w = null) => { setEW(w); setWF(w ? { name: w.name, pos: w.pos, av: w.av, dept_id: w.dept_id || "" } : { name: "", pos: "", av: "", dept_id: "" }); setWMod(true); };
-  const saveW = async () => {
+  const openW = (w = null) => { setEW(w); setWF(w ? { name: w.name, pos: w.pos, av: w.av } : { name: "", pos: "", av: "" }); setWMod(true); };
+  const saveW = () => {
     if (!wF.name.trim()) return;
     const ini = wF.av || wF.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-    const deptId = wF.dept_id || null;
-    try {
-      if (eW) {
-        await sbFetch(`workers?id=eq.${eW.id}`, "PATCH", { name: wF.name, pos: wF.pos, av: ini, dept_id: deptId });
-        setWorkers((p) => p.map((w) => w.id === eW.id ? { ...w, name: wF.name, pos: wF.pos, av: ini, dept_id: deptId } : w));
-        toast(tl.toastWorkerUpdated, wF.name, "ok");
-      } else {
-        const nw = { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde", dept_id: deptId };
-        await sbFetch("workers", "POST", nw);
-        setWorkers((p) => [...p, nw]);
-        toast(tl.toastWorkerAdded, wF.name, "ok");
-      }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    if (eW) setWorkers((p) => p.map((w) => w.id === eW.id ? { ...w, name: wF.name, pos: wF.pos, av: ini } : w));
+    else    setWorkers((p) => [...p, { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde" }]);
     setWMod(false);
+    toast(eW ? tl.toastWorkerUpdated : tl.toastWorkerAdded, wF.name, "ok");
   };
 
   const openU = (u = null) => {
@@ -2539,7 +2305,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
 
       {/* Sub-tab */}
       <div style={{ display: "flex", gap: 5, background: C.sf, padding: 4, borderRadius: 13, border: `1px solid ${C.bd}`, width: "fit-content" }}>
-        {[{ id: "workers", l: `👷 ${tl.workersTab}` }, { id: "users", l: `🔐 ${tl.usersTab}` }, { id: "depts", l: `🏢 ${tl.depts}` }].map((t) => (
+        {[{ id: "workers", l: `👷 ${tl.workersTab}` }, { id: "users", l: `🔐 ${tl.usersTab}` }].map((t) => (
           <button key={t.id} onClick={() => setSub(t.id)} style={{ padding: "6px 16px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, background: sub === t.id ? C.ac : "transparent", color: sub === t.id ? "#fff" : C.txS, transition: "all .2s" }}>{t.l}</button>
         ))}
       </div>
@@ -2561,9 +2327,9 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                 <Av a={w.av} i={i} z={46} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.tx }}>{w.name}</div>
-                  <div style={{ fontSize: 12, color: C.txS, marginTop: 1 }}>{w.pos}{(() => { const d = depts.find(x => x.id === w.dept_id); return d ? <span style={{ marginLeft:6, fontSize:10, background:C.acG, color:C.ac, borderRadius:5, padding:"1px 6px", fontWeight:700 }}>🏢 {d.name}</span> : null; })()}</div>
+                  <div style={{ fontSize: 12, color: C.txS, marginTop: 1 }}>{w.pos}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
+                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ —"}</Chip>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
@@ -2580,14 +2346,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
               <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
                 <div><Lbl t={tl.fullName} C={C} /><Inp C={C} value={wF.name} onChange={(e) => setWF((f) => ({ ...f, name: e.target.value }))} placeholder="Oraz Ataýew" /></div>
                 <div><Lbl t={tl.position} C={C} /><Inp C={C} value={wF.pos} onChange={(e) => setWF((f) => ({ ...f, pos: e.target.value }))} placeholder="Programmist" /></div>
-                <div><Lbl t={tl.initials} C={C} /><Inp C={C} value={wF.av} onChange={(e) => setWF((f) => ({ ...f, av: e.target.value }))} placeholder="MA" maxLength={2} /></div>
-                <div>
-                  <Lbl t={tl.dept} C={C} />
-                  <Sel C={C} value={wF.dept_id || ""} onChange={(e) => setWF((f) => ({ ...f, dept_id: e.target.value }))} kids={[
-                    <option key="" value="">{tl.selectDept}</option>,
-                    ...depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>),
-                  ]} />
-                </div>
+                <div><Lbl t={tl.initials} C={C} /><Inp C={C} value={wF.av} onChange={(e) => setWF((f) => ({ ...f, av: e.target.value }))} placeholder="OA" maxLength={2} /></div>
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <Btn ch={tl.cancel} v="gh" onClick={() => setWMod(false)} sx={{ color: C.txS }} />
                   <Btn ch={eW ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={saveW} />
@@ -2666,74 +2425,6 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
         </>
       )}
 
-      {/* Bölümler */}
-      {sub === "depts" && (
-        <>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <Btn ch={<span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",14)} {tl.addDept}</span>} onClick={() => { setED(null); setDF({ name: "" }); setDMod(true); }} />
-          </div>
-          {depts.length === 0 && (
-            <div style={{ background:C.cd, border:`1px solid ${C.bd}`, borderRadius:17, padding:22, textAlign:"center", color:C.txM }}>{tl.noDepts}</div>
-          )}
-          <div style={{ display:"flex", flexDirection:"column", gap:11 }}>
-            {depts.map((d) => {
-              const dw = workers.filter(w => w.dept_id === d.id);
-              return (
-                <div key={d.id} className="kc" style={{ background:C.cd, border:`1px solid ${C.bd}`, borderRadius:17, padding:"14px 18px", display:"flex", alignItems:"center", gap:13, transition:"all .2s" }}>
-                  <div style={{ width:44, height:44, borderRadius:13, flexShrink:0, background:C.acG, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🏢</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:C.tx }}>{d.name}</div>
-                    <div style={{ fontSize:12, color:C.txS, marginTop:2 }}>{dw.length} işgär</div>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:5 }}>
-                      {dw.slice(0,5).map((w,i) => <span key={w.id} style={{ fontSize:11, background:C.sf, border:`1px solid ${C.bd}`, borderRadius:6, padding:"2px 7px", color:C.tx }}>{w.name.split(" ")[0]}</span>)}
-                      {dw.length > 5 && <span style={{ fontSize:11, color:C.txM }}>+{dw.length-5}</span>}
-                    </div>
-                  </div>
-                  <div style={{ display:"flex", gap:7 }}>
-                    <Btn ch={I.edit(C.txS,13)} v="ot" sz="s" onClick={() => { setED(d); setDF({ name: d.name }); setDMod(true); }} />
-                    <Btn ch={I.trash(C.rd,13)} v="dl" sz="s" onClick={async () => {
-                      try {
-                        await sbFetch(`depts?id=eq.${d.id}`, "DELETE");
-                        setDepts(p => p.filter(x => x.id !== d.id));
-                        toast("Bölüm pozuldy", d.name, "info");
-                      } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-                    }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {dMod && (
-            <Pop C={C} onClose={() => setDMod(false)} w={380}>
-              <h3 style={{ fontSize:17, fontWeight:900, color:C.tx, marginBottom:18 }}>{eD ? `✏️ ${tl.editDept}` : `➕ ${tl.newDept}`}</h3>
-              <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
-                <div><Lbl t={tl.deptName} C={C} /><Inp C={C} value={dF.name} onChange={(e) => setDF(f => ({ ...f, name: e.target.value }))} placeholder={tl.deptNamePh} /></div>
-                <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-                  <Btn ch={tl.cancel} v="gh" onClick={() => setDMod(false)} sx={{ color:C.txS }} />
-                  <Btn ch={eD ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.save}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={async () => {
-                    if (!dF.name.trim()) return;
-                    try {
-                      if (eD) {
-                        await sbFetch(`depts?id=eq.${eD.id}`, "PATCH", { name: dF.name });
-                        setDepts(p => p.map(x => x.id === eD.id ? { ...x, name: dF.name } : x));
-                        toast("Bölüm täzelendi", dF.name, "ok");
-                      } else {
-                        const nd = { id: "d" + Date.now(), name: dF.name };
-                        await sbFetch("depts", "POST", nd);
-                        setDepts(p => [...p, nd]);
-                        toast("Bölüm goşuldy", dF.name, "ok");
-                      }
-                      setDMod(false);
-                    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-                  }} />
-                </div>
-              </div>
-            </Pop>
-          )}
-        </>
-      )}
-
       {sMod && <SettingsModal settings={settings} setSettings={setSettings} C={C} onClose={() => setSMod(false)} toast={toast} tl={tl} />}
     </div>
   );
@@ -2743,21 +2434,21 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
 // HASABATLAR
 // ═══════════════════════════════════════════════════════════════
 function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
-  if (cu.role === "ishgar") return <Deny C={C} tl={tl} />;
+  if (cu.role === "ishgar") return <Deny C={C} />;
 
   const ws = workers.map((w) => {
-    const recs = attend.filter((a) => a.wid === w.id && a.check_out);
-    const mins = recs.reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
-    const late = recs.filter((a) => !a.edited && tMin(a.check_in) > tMin(settings.workStart) + settings.lateLimit).length;
+    const recs = attend.filter((a) => a.wid === w.id && a.out);
+    const mins = recs.reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0);
+    const late = recs.filter((a) => !a.edited && tMin(a.inn) > tMin(settings.workStart) + settings.lateLimit).length;
     const mt   = tasks.filter((t) => t.who === w.id);
     const done = mt.filter((t) => t.col === "Tamamlandy").length;
     return { ...w, hours: (mins / 60).toFixed(1), days: recs.length, late, tasks: mt.length, done };
   });
 
-  const totMin = attend.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
+  const totMin = attend.filter((a) => a.out).reduce((s, a) => s + (tMin(a.out) - tMin(a.inn)), 0);
   const top = [
-    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + " sa", ic: I.time(C.ac,24), c: C.ac },
-    { l: tl.daysCount,  v: attend.filter((a) => a.check_out).length,            ic: I.calendar(C.gn,24), c: C.gn },
+    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + "s", ic: I.time(C.ac,24), c: C.ac },
+    { l: tl.daysCount,  v: attend.filter((a) => a.out).length,            ic: I.calendar(C.gn,24), c: C.gn },
     { l: tl.done,  v: tasks.filter((t) => t.col === "Tamamlandy").length, ic: I.check(C.pu,22), c: C.pu },
     { l: tl.workers,    v: workers.length,                                ic: I.workers(C.gn,22), c: C.yw },
   ];
@@ -2840,7 +2531,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     ? [tl.aiQMyTasks, tl.aiQToday, tl.aiQAdvice]
     : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
 
-  const overdue = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
+  const overdue = tasks.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy").length;
 
   // Dile görä AI instruksiýasy
   const langInstr = {
@@ -2859,150 +2550,133 @@ At work: ${workers.filter((w) => w.status === "işde").map((w) => w.name).join("
 Tasks: Todo=${tasks.filter((t) => t.col === "Etmeli").length}, Done=${tasks.filter((t) => t.col === "Tamamlandy").length}
 Overdue: ${overdue}`}
 Answer in max 3 sentences.`;
-// Vercel we Vite üçin API açaryny Environment Variable-dan alýarys
-      // GitHub bloklamazlygy üçin açaryňyzy diňe Vercel Settings-e goşuň!
-      const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-const sysPrompt = `
-  Sen "Komekci" atly programmanyň resmi AI kömekçisi.
-  Bu programma işgärleriň gatnaşygyny, wezipelerini (tasks) we bölümlerini dolandyrýar.
 
-  Seniň wezipeleriň:
-  1. Ulanyjy programma barada sorasa (mysal: "Işgär goşmak", "Task näme?"), olara kömek et.
-  2. Jogaplaryňy Türkmen, Rus we Iňlis dillerinde berip bilýärsiň.
-  3. Eger ulanyjy kynçylyk çekse, ädimme-ädim nähili ulanmalydygyny düşündir.
-  4. Sen diňe "Komekci" programmasy barada däl, umumy soraglara-da jogap berýärsiň.
-`;
-      const send = async (txt) => {
-        const msg = (txt || inp).trim();
-        if (!msg || load) return;
+  // Groq API — Türkmenistanda VPN bolmasa-da işleýär, mugt
+  // API açaryny almak: console.groq.com -> Create API Key
+  const GROQ_API_KEY = "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";
 
-        setInp("");
-        const nm = [...msgs, { role: "user", content: msg }];
-        setMsgs(nm);
-        setLoad(true);
+  const send = async (txt) => {
+    const msg = (txt || inp).trim();
+    if (!msg || load) return;
+    setInp("");
+    const nm = [...msgs, { role: "user", content: msg }];
+    setMsgs(nm);
+    setLoad(true);
 
-        if (!GROQ_API_KEY) {
-          setMsgs((p) => [...p, {
-            role: "assistant",
-            content: "⚙️ AI işlemek üçin Groq API açaryny sazlamaly.\n\n1. console.groq.com açyň\n2. API Keys -> Create API Key\n3. Vercel-de VITE_GROQ_API_KEY ady bilen goşuň.",
-          }]);
-          setLoad(false);
-          return;
-        }
+    if (!GROQ_API_KEY) {
+      setMsgs((p) => [...p, {
+        role: "assistant",
+        content: "⚙️ AI işlemek üçin Groq API açaryny App.jsx faýlynda GROQ_API_KEY ýerine goýuň.\n\n1. console.groq.com açyň\n2. Hasap açyň (mugt)\n3. API Keys -> Create API Key\n4. Açary App.jsx-däki GROQ_API_KEY = \"\" içine goýuň",
+      }]);
+      setLoad(false);
+      return;
+    }
 
-        try {
-          const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${GROQ_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              max_tokens: 600,
-              messages: [
-                { role: "system", content: sysPrompt },
-                ...nm.map((m) => ({ role: m.role, content: m.content })),
-              ],
-            }),
-          });
+    try {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 600,
+          messages: [
+            { role: "system", content: sysPrompt },
+            ...nm.map((m) => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+      const d = await r.json();
+      const text = d.choices && d.choices[0] && d.choices[0].message
+        ? d.choices[0].message.content
+        : "Ötünç, jogap alyp bolmady.";
+      setMsgs((p) => [...p, { role: "assistant", content: text }]);
+    } catch {
+      setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
+    }
+    setLoad(false);
+  };
 
-          const d = await r.json();
-          const text = d.choices && d.choices[0] && d.choices[0].message
-            ? d.choices[0].message.content
-            : "Ötünç, jogap alyp bolmady.";
-          setMsgs((p) => [...p, { role: "assistant", content: text }]);
-        } catch {
-          setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
-        }
-        setLoad(false);
-      };
+  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
-      useEffect(() => {
-        if (endRef.current) {
-          endRef.current.scrollIntoView({ behavior: "smooth" });
-        }
-      }, [msgs, load]);
-
-      return (
-        <div
-          onClick={(e) => e.target === e.currentTarget && onClose()}
-          style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
-        >
-          <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
-
-            {/* Header */}
-            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white", 20)}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
-                <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.gn, display: "inline-block" }} />
-                  <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
-                </div>
-              </div>
-              <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
-            </div>
-
-            {/* Çalt soraglar */}
-            <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {QK.map((q) => (
-                <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
-              ))}
-            </div>
-
-            {/* Mesajlar */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
-              {msgs.map((m, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
-                  {m.role === "assistant" && (
-                    <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
-                  )}
-                  <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
-                </div>
-              ))}
-              {load && (
-                <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
-                  <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
-                    {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
-                  </div>
-                </div>
-              )}
-              <div ref={endRef} />
-            </div>
-
-            {/* Input */}
-            <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
-              <input
-                value={inp}
-                onChange={(e) => setInp(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-                disabled={load}
-                placeholder={tl.aiPh}
-                style={{ flex: 1, padding: "9px 14px", borderRadius: 12, fontSize: 13, background: C.cd, border: `1.5px solid ${C.bd}`, color: C.tx, fontFamily: "inherit" }}
-              />
-              <button
-                onClick={() => send()}
-                disabled={load || !inp.trim()}
-                style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-              >{I.send("white", 17)}</button>
+  return (
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
+    >
+      <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
+        {/* Header */}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
+            <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.gn, display: "inline-block" }} />
+              <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
             </div>
           </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
         </div>
-      );
-    };
 
-    export default AI_Chat;
+        {/* Çalt soraglar */}
+        <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {QK.map((q) => (
+            <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
+          ))}
+        </div>
+
+        {/* Mesajlar */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
+          {msgs.map((m, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
+              {m.role === "assistant" && (
+                <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
+              )}
+              <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
+            </div>
+          ))}
+          {load && (
+            <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
+              <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
+                {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        {/* Input */}
+        <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
+          <input
+            value={inp}
+            onChange={(e) => setInp(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+            disabled={load}
+            placeholder={tl.aiPh}
+            style={{ flex: 1, padding: "9px 14px", borderRadius: 12, fontSize: 13, background: C.cd, border: `1.5px solid ${C.bd}`, color: C.tx, fontFamily: "inherit" }}
+          />
+          <button
+            onClick={() => send()}
+            disabled={load || !inp.trim()}
+            style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >{I.send("white",17)}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
   return [
-    { id: "d",   ic: (c,s) => I.home(c,s),     l: tl.navHome    },
-    { id: "a",   ic: (c,s) => I.calendar(c,s),  l: tl.navAttend },
-    { id: "k",   ic: (c,s) => I.kanban(c,s),    l: tl.navTasks  },
-    ...(cu.role === "admin"               ? [{ id: "adm", ic: (c,s) => I.settings(c,s), l: tl.navAdmin  }] : []),
-    ...(cu.role === "admin" || cu.role === "bashlik" ? [{ id: "r", ic: (c,s) => I.chart(c,s), l: tl.navReport }] : []),
+    { id: "d",   ic: (c,s) => I.home(c,s),     l: tl.navHome      },
+    { id: "a",   ic: (c,s) => I.calendar(c,s),  l: tl.navAttend  },
+    { id: "k",   ic: (c,s) => I.kanban(c,s),    l: tl.navTasks },
+    ...(cu.role === "admin"  ? [{ id: "adm", ic: (c,s) => I.settings(c,s), l: tl.navAdmin   }] : []),
+    ...(cu.role !== "ishgar" ? [{ id: "r",   ic: (c,s) => I.chart(c,s),    l: tl.navReport }] : []),
   ];
 }
 
@@ -3034,7 +2708,6 @@ export default function App() {
   const [tab,      setTab]      = useState("d");
   const [workers,  setWorkers]  = useState([]);
   const [tasks,    setTasks]    = useState([]);
-  const [depts,    setDepts]    = useState([]);
   const [attend,   setAttend]   = useState([]);
   const [users,    setUsers]    = useState([]);
   const [settings, setSettings] = useState(DEF_SETTINGS);
@@ -3050,19 +2723,17 @@ export default function App() {
   useEffect(() => {
     async function loadAll() {
       try {
-        const [w, t, a, u, s, d] = await Promise.all([
+        const [w, t, a, u, s] = await Promise.all([
           sbFetch("workers?order=created_at"),
           sbFetch("tasks?order=created_at"),
           sbFetch("attend?order=created_at"),
           sbFetch("users?order=created_at"),
           sbFetch("settings?id=eq.1"),
-          sbFetch("depts?order=created_at"),
         ]);
         setWorkers(w || []);
-        setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
+        setTasks((t || []).map(x => ({ ...x, desc: x.description, comments: x.comments || [] })));
         setAttend(a || []);
         setUsers(u || []);
-        setDepts(d || []);
         if (s && s[0]) {
           setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit });
         }
@@ -3084,7 +2755,7 @@ export default function App() {
         if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== old.id));
       }),
       sbSubscribe("tasks", (ev, rec, old) => {
-        const r = rec ? { ...rec, desc: rec.description || "", comments: rec.comments || [] } : rec;
+        const r = rec ? { ...rec, desc: rec.description, comments: rec.comments || [] } : rec;
         if (ev === "INSERT") setTasks(p => [...p, r]);
         if (ev === "UPDATE") setTasks(p => p.map(x => x.id === r.id ? r : x));
         if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== old.id));
@@ -3098,11 +2769,6 @@ export default function App() {
         if (ev === "INSERT") setUsers(p => [...p, rec]);
         if (ev === "UPDATE") setUsers(p => p.map(x => x.id === rec.id ? rec : x));
         if (ev === "DELETE") setUsers(p => p.filter(x => x.id !== old.id));
-      }),
-      sbSubscribe("depts", (ev, rec, old) => {
-        if (ev === "INSERT") setDepts(p => [...p, rec]);
-        if (ev === "UPDATE") setDepts(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setDepts(p => p.filter(x => x.id !== old.id));
       }),
     ];
     return () => unsubs.forEach(fn => fn());
@@ -3120,7 +2786,7 @@ export default function App() {
   // Möhlet geçen tabşyryklary barlaýar
   useEffect(() => {
     if (!cu) return;
-    const od = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy");
+    const od = tasks.filter((t) => t.dl && dDiff(gToday(), dlToTk(t.dl)) < 0 && t.col !== "Tamamlandy");
     if (od.length > 0) toast(`${od.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
   }, [cu]); // eslint-disable-line
 
@@ -3137,18 +2803,7 @@ export default function App() {
   );
 
   const normUsers   = users.map((u) => ({ ...u, wid: u.wid || u.workerId || null }));
-  // Başlyk — diňe öz bölüminiň işgärlerini görýär
-  const cuWorker    = workers.find(w => w.id === cu?.wid);
-  const normWorkers = (cu?.role === "bashlik" && cuWorker?.dept_id)
-    ? workers.filter(w => w.dept_id === cuWorker.dept_id)
-    : workers;
-  // Başlyk — diňe öz bölüminiň tabşyryklaryny görýär
-  const normTasks   = (cu?.role === "bashlik" && cuWorker?.dept_id)
-    ? tasks.filter(t => {
-        const tw = workers.find(w => w.id === t.who);
-        return tw?.dept_id === cuWorker.dept_id;
-      })
-    : tasks;
+  const normWorkers = workers;
 
   // Giriş ekrany
   if (!cu) {
@@ -3176,7 +2831,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <LogoIcon size={36}/>
           <div>
-            <LogoText size={mob ? 13 : 20} C={C} />
+            <LogoText size={mob ? 16 : 20} C={C} />
             {!mob && <div style={{ fontSize: 10, color: C.txM, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", marginTop: -2 }}>{tl.appSubShort}</div>}
           </div>
         </div>
@@ -3193,7 +2848,7 @@ export default function App() {
         )}
 
         {/* Sag tarap düwmeleri */}
-        <div style={{ display: "flex", alignItems: "center", gap: mob ? 3 : 7 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: mob ? 5 : 7 }}>
           {/* Sagat — diňe desktop */}
           {!mob && (
             <div style={{ fontSize: 12, color: C.txS, fontVariantNumeric: "tabular-nums", background: C.cd, padding: "4px 12px", borderRadius: 18, border: `1px solid ${C.bd}` }}>🕐 {time}</div>
@@ -3203,14 +2858,14 @@ export default function App() {
           <LangSwitcher lang={lang} setL={setL} C={C}/>
 
           {/* Profil düwmesi */}
-          <button onClick={() => setProfOpen(true)} className="kb" style={{ display: "flex", alignItems: "center", gap: 6, background: C.cd, border: `1.5px solid ${role.c}44`, borderRadius: 11, padding: mob ? "4px 6px" : "5px 11px", cursor: "pointer" }}>
+          <button onClick={() => setProfOpen(true)} className="kb" style={{ display: "flex", alignItems: "center", gap: 6, background: C.cd, border: `1.5px solid ${role.c}44`, borderRadius: 11, padding: mob ? "5px 8px" : "5px 11px", cursor: "pointer" }}>
             <span style={{display:"flex"}}>{role.ic(role.c, 16)}</span>
             {!mob && <span style={{ fontSize: 12, fontWeight: 800, color: C.tx }}>{cu.name.split(" ")[0]}</span>}
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: role.c, display: "inline-block", boxShadow: `0 0 6px ${role.c}` }} />
           </button>
 
           {/* AI düwmesi — hemişe görünýär */}
-          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: mob ? 30 : "auto", height: mob ? 30 : "auto", padding: mob ? "0" : "7px 14px", borderRadius: mob ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
+          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: mob ? 34 : "auto", height: mob ? 34 : "auto", padding: mob ? "0" : "7px 14px", borderRadius: mob ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
             {mob ? I.robot("white",17) : <span style={{display:"flex",alignItems:"center",gap:5}}>{I.robot("white",16)} AI</span>}
           </button>
 
@@ -3220,17 +2875,17 @@ export default function App() {
           </button>
 
           {/* Çykyş — hemişe görünýär */}
-          <button onClick={() => setCu(null)} className="kb" title={tl.logout} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
+          <button onClick={() => setCu(null)} className="kb" title={tl.logout} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
         </div>
       </header>
 
       {/* ─── MAIN MAZMUNY ─── */}
       <main style={{ flex: 1, padding: mob ? "14px 13px 80px" : "26px", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
-        {tab === "d"   && <Dash     tl={tl} workers={normWorkers} tasks={normTasks} depts={depts} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
+        {tab === "d"   && <Dash     tl={tl} workers={normWorkers} tasks={tasks} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
         {tab === "a"   && <Attend   tl={tl} workers={normWorkers} attend={attend} setAttend={setAttend} setWorkers={setWorkers} C={C} mob={mob} cu={cu} settings={settings} toast={toast} />}
-        {tab === "k"   && <Kanban   tl={tl} tasks={normTasks} setTasks={setTasks} workers={normWorkers} C={C} mob={mob} cu={cu} toast={toast} />}
-        {tab === "adm" && <Admin    tl={tl} workers={normWorkers} setWorkers={setWorkers} users={normUsers} setUsers={setUsers} depts={depts} setDepts={setDepts} C={C} mob={mob} cu={cu} settings={settings} setSettings={setSettings} toast={toast} />}
-        {tab === "r"   && <Reports  tl={tl} workers={normWorkers} tasks={normTasks} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
+        {tab === "k"   && <Kanban   tl={tl} tasks={tasks} setTasks={setTasks} workers={normWorkers} C={C} mob={mob} cu={cu} toast={toast} />}
+        {tab === "adm" && <Admin    tl={tl} workers={normWorkers} setWorkers={setWorkers} users={normUsers} setUsers={setUsers} C={C} mob={mob} cu={cu} settings={settings} setSettings={setSettings} toast={toast} />}
+        {tab === "r"   && <Reports  tl={tl} workers={normWorkers} tasks={tasks} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
       </main>
 
       {/* Mobil nawigasiýa */}
@@ -3242,7 +2897,7 @@ export default function App() {
       )}
 
       {/* Modallar */}
-      {aiOpen   && <AIPanel   tl={tl} lang={lang} workers={normWorkers} tasks={normTasks} attend={attend} onClose={() => setAiOpen(false)} C={C} mob={mob} cu={cu} />}
+      {aiOpen   && <AIPanel   tl={tl} lang={lang} workers={normWorkers} tasks={tasks} attend={attend} onClose={() => setAiOpen(false)} C={C} mob={mob} cu={cu} />}
       {profOpen && <Profile   tl={tl} cu={cu} users={normUsers} setUsers={setUsers} setCu={(u) => setCu({ ...u, wid: u.wid || u.workerId || null })} C={C} onClose={() => setProfOpen(false)} toast={toast} />}
 
       {/* Bildirişler */}
