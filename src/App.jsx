@@ -2824,175 +2824,156 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 // ═══════════════════════════════════════════════════════════════
 // AI KÖMEKÇI PANELI
 // ═══════════════════════════════════════════════════════════════
-import React, { useState, useEffect, useRef } from 'react';
+function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
+  const isI = cu.role === "ishgar";
+  const myT = isI ? tasks.filter((t) => t.who === cu.wid) : tasks;
 
-// 1. Kynçylyk döretmezligi üçin kömekçi funksiýalary (fallback) şu ýere goşalyň
-const safeDlToTk = (dl) => dl || "";
-const safeGToday = () => new Date().toISOString().split('T')[0];
-
-function AIPanel({
-  workers = [],
-  tasks = [],
-  attend = [],
-  onClose,
-  C = {},
-  mob = false,
-  cu = {},
-  tl = {},
-  lang = 'tk',
-  I = {}
-}) {
-  // 2. Maglumatlaryň barlygyny barlaýarys (Defensive programming)
-  const isI = cu?.role === "ishgar";
-  const myT = isI ? (tasks || []).filter((t) => t?.who === cu?.wid) : (tasks || []);
-
-  const [msgs, setMsgs] = useState([
-    { role: "assistant", content: `Salam, ${cu?.name?.split(" ")[0] || 'Ulanyjy'}! Size nähili kömek edip bilerin? ✨` }
-  ]);
-  const [inp, setInp] = useState("");
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Men Kömekçiniň AI kömekçisi. Size nähili kömek edip bilerin? ✨` }]);
+  const [inp,  setInp]  = useState("");
   const [load, setLoad] = useState(false);
   const endRef = useRef(null);
 
-  // Quick Questions (Sora we gorag goý)
   const QK = isI
-    ? [tl?.aiQMyTasks || "Tasklarym", tl?.aiQToday || "Bu gün", tl?.aiQAdvice || "Maslahat"]
-    : [tl?.aiQWho || "Kim işde?", tl?.aiQOverdue || "Gijigenler", tl?.aiQPerf || "Hasabat", tl?.aiQAdvice || "Maslahat"];
+    ? [tl.aiQMyTasks, tl.aiQToday, tl.aiQAdvice]
+    : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
 
-  // 3. Prompt-y diňe bir gezek we durnukly ýagdaýda döredýäris
-  const getSysPrompt = () => {
-    const langInstr = {
-      tk: "Diňe TÜRKMEN dilinde jogap ber. Gysgaça.",
-      ru: "Отвечай ТОЛЬКО на РУССКОМ. Кратко.",
-      en: "Reply ONLY in ENGLISH. Briefly."
-    };
+  const overdue = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
 
-    return `
-      Sen "Komekci" AI. Ulanyjy: ${cu?.name || 'Näbelli'}. Rol: ${cu?.role || 'ishgar'}.
-      ${langInstr[lang] || langInstr.tk}
-      Maglumat: Işgär: ${workers?.length || 0}, Task: ${tasks?.length || 0}.
-      Maksimum 2-3 sözlemde jogap ber.
-    `;
+  // Dile görä AI instruksiýasy
+  const langInstr = {
+    tk: "Diňe TÜRKMEN dilinde jogap ber. Gysgaça we peýdaly.",
+    ru: "Отвечай ТОЛЬКО на РУССКОМ языке. Кратко и по делу.",
+    en: "Reply ONLY in ENGLISH. Keep it brief and helpful.",
   };
+
+  const sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
+${langInstr[lang] || langInstr.tk}
+User: ${cu.name}, role: ${cu.role}
+${isI
+  ? `My tasks: ${myT.map((t) => `"${t.title}"(${t.col}${t.dl ? ", due:" + dlToTk(t.dl) : ""})`).join(", ") || "none"}`
+  : `Workers: ${workers.map((w) => `${w.name}(${w.pos},${w.status})`).join(", ")}
+At work: ${workers.filter((w) => w.status === "işde").map((w) => w.name).join(", ") || "none"}
+Tasks: Todo=${tasks.filter((t) => t.col === "Etmeli").length}, Done=${tasks.filter((t) => t.col === "Tamamlandy").length}
+Overdue: ${overdue}`}
+Answer in max 3 sentences.`;
+
+  // Groq API — Türkmenistanda VPN bolmasa-da işleýär, mugt
+  // API açaryny almak: console.groq.com -> Create API Key
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
     if (!msg || load) return;
-
     setInp("");
-    const newMsgs = [...msgs, { role: "user", content: msg }];
-    setMsgs(newMsgs);
+    const nm = [...msgs, { role: "user", content: msg }];
+    setMsgs(nm);
     setLoad(true);
 
+    if (!GROQ_API_KEY) {
+      setMsgs((p) => [...p, {
+        role: "assistant",
+        content: "⚙️ AI işlemek üçin Groq API açaryny App.jsx faýlynda GROQ_API_KEY ýerine goýuň.\n\n1. console.groq.com açyň\n2. Hasap açyň (mugt)\n3. API Keys -> Create API Key\n4. Açary App.jsx-däki GROQ_API_KEY = \"\" içine goýuň",
+      }]);
+      setLoad(false);
+      return;
+    }
+
     try {
-      // API Key barlygyny barla
-      const apiKey = import.meta.env?.VITE_GROQ_API_KEY || "";
-
-      if (!apiKey) {
-        throw new Error("API_KEY_MISSING");
-      }
-
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
         },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
+          max_tokens: 600,
           messages: [
-            { role: "system", content: getSysPrompt() },
-            ...newMsgs.map(m => ({ role: m.role, content: m.content })),
+            { role: "system", content: sysPrompt },
+            ...nm.map((m) => ({ role: m.role, content: m.content })),
           ],
         }),
       });
-
-      const data = await response.json();
-      const aiContent = data.choices?.[0]?.message?.content || "Jogap alyp bolmady.";
-
-      setMsgs(prev => [...prev, { role: "assistant", content: aiContent }]);
-    } catch (err) {
-      console.error("AI Error:", err);
-      setMsgs(prev => [...prev, { role: "assistant", content: "⚠️ Bagyşlaň, häzir baglanyşyp bolmaýar." }]);
-    } finally {
-      setLoad(false);
+      const d = await r.json();
+      const text = d.choices && d.choices[0] && d.choices[0].message
+        ? d.choices[0].message.content
+        : "Ötünç, jogap alyp bolmady.";
+      setMsgs((p) => [...p, { role: "assistant", content: text }]);
+    } catch {
+      setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
     }
+    setLoad(false);
   };
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs, load]);
-
-  // 4. Dizayn üçin reňk goraglary (Fallback colors)
-  const theme = {
-    bg: C?.cd || "#ffffff",
-    border: C?.bd || "#dddddd",
-    text: C?.tx || "#000000",
-    accent: C?.ac || "#007bff",
-    purple: C?.pu || "#6f42c1",
-    soft: C?.sf || "#f8f9fa"
-  };
+  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
   return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      style={{ position: "fixed", inset: 0, background: "#00000090", zInteger: 1000, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px", backdropFilter: "blur(4px)" }}
+      style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
     >
-      <div style={{ width: mob ? "100%" : "400px", height: mob ? "85vh" : "550px", background: theme.bg, borderRadius: mob ? "20px 20px 0 0" : "15px", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${theme.border}` }}>
-
+      <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
         {/* Header */}
-        <div style={{ padding: "15px", borderBottom: `1px solid ${theme.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: theme.soft }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 35, height: 35, borderRadius: 10, background: theme.purple, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
-              {I?.robot ? I.robot("white", 20) : "🤖"}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
+            <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.gn, display: "inline-block" }} />
+              <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
             </div>
-            <b style={{ color: theme.text }}>{tl?.aiTitle || "AI Kömekçi"}</b>
           </div>
-          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 18, color: theme.text }}>✕</button>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
         </div>
 
-        {/* Chat Area */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "15px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Çalt soraglar */}
+        <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {QK.map((q) => (
+            <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
+          ))}
+        </div>
+
+        {/* Mesajlar */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
           {msgs.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "80%" }}>
-              <div style={{
-                padding: "10px 14px",
-                borderRadius: "12px",
-                background: m.role === "user" ? theme.accent : theme.soft,
-                color: m.role === "user" ? "#fff" : theme.text,
-                fontSize: "13px",
-                border: m.role === "assistant" ? `1px solid ${theme.border}` : "none"
-              }}>
-                {m.content}
-              </div>
+            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
+              {m.role === "assistant" && (
+                <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
+              )}
+              <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
             </div>
           ))}
-          {load && <div style={{ fontSize: 11, color: theme.purple, marginLeft: 5 }}>AI ýazýar...</div>}
+          {load && (
+            <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
+              <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
+                {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
+              </div>
+            </div>
+          )}
           <div ref={endRef} />
         </div>
 
-        {/* Input Area */}
-        <div style={{ padding: "12px", borderTop: `1px solid ${theme.border}`, display: "flex", gap: 8 }}>
+        {/* Input */}
+        <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
           <input
             value={inp}
             onChange={(e) => setInp(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder={tl?.aiPh || "Sorag ýazyň..."}
-            style={{ flex: 1, padding: "10px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text }}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+            disabled={load}
+            placeholder={tl.aiPh}
+            style={{ flex: 1, padding: "9px 14px", borderRadius: 12, fontSize: 13, background: C.cd, border: `1.5px solid ${C.bd}`, color: C.tx, fontFamily: "inherit" }}
           />
           <button
             onClick={() => send()}
             disabled={load || !inp.trim()}
-            style={{ padding: "0 15px", borderRadius: "8px", background: theme.purple, color: "#fff", border: "none", cursor: "pointer" }}
-          >
-            {I?.send ? I.send("white", 16) : "Goý"}
-          </button>
+            style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >{I.send("white",17)}</button>
         </div>
       </div>
     </div>
   );
 }
-
-export default AIPanel;
 
 // ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
