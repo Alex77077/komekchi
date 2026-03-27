@@ -2826,44 +2826,53 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 // ═══════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useRef } from 'react';
 
-// Bellik: dDiff, dlToTk, gToday ýaly funksiýalaryňyz import edilen bolmaly
-// Ýa-da bu ýerde kömekçi funksiýa hökmünde goşmaly.
+// 1. Kynçylyk döretmezligi üçin kömekçi funksiýalary (fallback) şu ýere goşalyň
+const safeDlToTk = (dl) => dl || "";
+const safeGToday = () => new Date().toISOString().split('T')[0];
 
-function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang, I }) {
-  const isI = cu.role === "ishgar";
-  const myT = isI ? tasks.filter((t) => t.who === cu.wid) : tasks;
+function AIPanel({
+  workers = [],
+  tasks = [],
+  attend = [],
+  onClose,
+  C = {},
+  mob = false,
+  cu = {},
+  tl = {},
+  lang = 'tk',
+  I = {}
+}) {
+  // 2. Maglumatlaryň barlygyny barlaýarys (Defensive programming)
+  const isI = cu?.role === "ishgar";
+  const myT = isI ? (tasks || []).filter((t) => t?.who === cu?.wid) : (tasks || []);
 
   const [msgs, setMsgs] = useState([
-    { role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Men Kömekçiniň AI kömekçisi. Size nähili kömek edip bilerin? ✨` }
+    { role: "assistant", content: `Salam, ${cu?.name?.split(" ")[0] || 'Ulanyjy'}! Size nähili kömek edip bilerin? ✨` }
   ]);
   const [inp, setInp] = useState("");
   const [load, setLoad] = useState(false);
   const endRef = useRef(null);
 
+  // Quick Questions (Sora we gorag goý)
   const QK = isI
-    ? [tl.aiQMyTasks, tl.aiQToday, tl.aiQAdvice]
-    : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
+    ? [tl?.aiQMyTasks || "Tasklarym", tl?.aiQToday || "Bu gün", tl?.aiQAdvice || "Maslahat"]
+    : [tl?.aiQWho || "Kim işde?", tl?.aiQOverdue || "Gijigenler", tl?.aiQPerf || "Hasabat", tl?.aiQAdvice || "Maslahat"];
 
-  // 1. Diliň instruksiýasyny we programma maglumatlaryny BİRLEŞDİRDİK
-  const langInstr = {
-    tk: "Diňe TÜRKMEN dilinde jogap ber. Gysgaça we peýdaly.",
-    ru: "Отвечай ТОЛЬКО на РУССКОМ языке. Кратко и по делу.",
-    en: "Reply ONLY in ENGLISH. Keep it brief and helpful.",
+  // 3. Prompt-y diňe bir gezek we durnukly ýagdaýda döredýäris
+  const getSysPrompt = () => {
+    const langInstr = {
+      tk: "Diňe TÜRKMEN dilinde jogap ber. Gysgaça.",
+      ru: "Отвечай ТОЛЬКО на РУССКОМ. Кратко.",
+      en: "Reply ONLY in ENGLISH. Briefly."
+    };
+
+    return `
+      Sen "Komekci" AI. Ulanyjy: ${cu?.name || 'Näbelli'}. Rol: ${cu?.role || 'ishgar'}.
+      ${langInstr[lang] || langInstr.tk}
+      Maglumat: Işgär: ${workers?.length || 0}, Task: ${tasks?.length || 0}.
+      Maksimum 2-3 sözlemde jogap ber.
+    `;
   };
-
-  const sysPrompt = `
-    Sen "Komekci" programmasynyň resmi AI kömekçisi.
-    Ulanyjy: ${cu.name}, Rol: ${cu.role}.
-    ${langInstr[lang] || langInstr.tk}
-
-    Häzirki programma maglumatlary:
-    - Umumy Işgärler: ${workers.length}
-    - Işde bolanlar: ${workers.filter(w => w.status === 'işde').length}
-    - Tasklar (Jemi): ${tasks.length}
-    ${isI ? `- Seniň tasklaryň: ${myT.map(t => t.title).join(", ")}` : `- Tamamlanmadyk: ${tasks.filter(t => t.col !== 'Tamamlandy').length}`}
-
-    Jogaplaryňy gysga (max 3 sözlem) we sylagly görnüşde ber.
-  `;
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
@@ -2875,94 +2884,107 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang, I }) {
     setLoad(true);
 
     try {
-      const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
-      let answered = false;
+      // API Key barlygyny barla
+      const apiKey = import.meta.env?.VITE_GROQ_API_KEY || "";
 
-      if (GROQ_KEY) {
-        const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${GROQ_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [
-              { role: "system", content: sysPrompt },
-              ...newMsgs.map(m => ({ role: m.role, content: m.content })),
-            ],
-          }),
-        });
-        const d = await r.json();
-        if (r.ok && d.choices?.[0]?.message?.content) {
-          setMsgs(p => [...p, { role: "assistant", content: d.choices[0].message.content }]);
-          answered = true;
-        }
+      if (!apiKey) {
+        throw new Error("API_KEY_MISSING");
       }
 
-      if (!answered) {
-        setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir jogap berip bilmedi. API açaryňyzy barlaň." }]);
-      }
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: getSysPrompt() },
+            ...newMsgs.map(m => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+
+      const data = await response.json();
+      const aiContent = data.choices?.[0]?.message?.content || "Jogap alyp bolmady.";
+
+      setMsgs(prev => [...prev, { role: "assistant", content: aiContent }]);
     } catch (err) {
-      setMsgs(p => [...p, { role: "assistant", content: "⚠️ Bagyşlaň, internet ýa-da server baglanyşygynda näsazlyk bar." }]);
+      console.error("AI Error:", err);
+      setMsgs(prev => [...prev, { role: "assistant", content: "⚠️ Bagyşlaň, häzir baglanyşyp bolmaýar." }]);
+    } finally {
+      setLoad(false);
     }
-    setLoad(false);
   };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, load]);
 
+  // 4. Dizayn üçin reňk goraglary (Fallback colors)
+  const theme = {
+    bg: C?.cd || "#ffffff",
+    border: C?.bd || "#dddddd",
+    text: C?.tx || "#000000",
+    accent: C?.ac || "#007bff",
+    purple: C?.pu || "#6f42c1",
+    soft: C?.sf || "#f8f9fa"
+  };
+
   return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)" }}
+      style={{ position: "fixed", inset: 0, background: "#00000090", zInteger: 1000, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px", backdropFilter: "blur(4px)" }}
     >
-      <div style={{ width: mob ? "100%" : "420px", height: mob ? "88vh" : "580px", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh }}>
+      <div style={{ width: mob ? "100%" : "400px", height: mob ? "85vh" : "550px", background: theme.bg, borderRadius: mob ? "20px 20px 0 0" : "15px", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${theme.border}` }}>
 
         {/* Header */}
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, display: "flex", alignItems: "center", gap: 11, background: C.sf }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-             {I?.robot ? I.robot("white", 20) : "🤖"}
+        <div style={{ padding: "15px", borderBottom: `1px solid ${theme.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: theme.soft }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 35, height: 35, borderRadius: 10, background: theme.purple, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+              {I?.robot ? I.robot("white", 20) : "🤖"}
+            </div>
+            <b style={{ color: theme.text }}>{tl?.aiTitle || "AI Kömekçi"}</b>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{tl.aiTitle || "AI Kömekçi"}</div>
-            <div style={{ fontSize: 11, color: C.gn }}>● {tl.aiActive || "Işjeň"}</div>
-          </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.cd, cursor: "pointer", color: C.tx }}>✕</button>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 18, color: theme.text }}>✕</button>
         </div>
 
-        {/* Quick Questions */}
-        <div style={{ padding: "10px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: `1px solid ${C.bd}50` }}>
-          {QK.map((q) => (
-            <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "4px 12px", borderRadius: 15, fontSize: 11, background: C.pu + "15", color: C.pu, border: `1px solid ${C.pu}30`, cursor: "pointer" }}>{q}</button>
-          ))}
-        </div>
-
-        {/* Messages */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "15px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Chat Area */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "15px", display: "flex", flexDirection: "column", gap: 10 }}>
           {msgs.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", display: "flex", gap: 8, alignItems: "flex-end", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
-              {m.role === "assistant" && <div style={{ width: 24, height: 24, borderRadius: 6, background: C.pu, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>🤖</div>}
-              <div style={{ padding: "10px 14px", borderRadius: m.role === "user" ? "15px 15px 2px 15px" : "15px 15px 15px 2px", background: m.role === "user" ? C.ac : C.sf, color: m.role === "user" ? "#fff" : C.tx, fontSize: "13px", border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", boxShadow: "0 2px 5px rgba(0,0,0,0.05)" }}>
+            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "80%" }}>
+              <div style={{
+                padding: "10px 14px",
+                borderRadius: "12px",
+                background: m.role === "user" ? theme.accent : theme.soft,
+                color: m.role === "user" ? "#fff" : theme.text,
+                fontSize: "13px",
+                border: m.role === "assistant" ? `1px solid ${theme.border}` : "none"
+              }}>
                 {m.content}
               </div>
             </div>
           ))}
+          {load && <div style={{ fontSize: 11, color: theme.purple, marginLeft: 5 }}>AI ýazýar...</div>}
           <div ref={endRef} />
         </div>
 
-        {/* Input */}
-        <div style={{ padding: "15px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 10 }}>
+        {/* Input Area */}
+        <div style={{ padding: "12px", borderTop: `1px solid ${theme.border}`, display: "flex", gap: 8 }}>
           <input
             value={inp}
             onChange={(e) => setInp(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-            placeholder={tl.aiPh || "Soragyňyzy ýazyň..."}
-            style={{ flex: 1, padding: "10px 14px", borderRadius: "10px", border: `1.5px solid ${C.bd}`, background: C.cd, color: C.tx, outline: "none" }}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+            placeholder={tl?.aiPh || "Sorag ýazyň..."}
+            style={{ flex: 1, padding: "10px", borderRadius: "8px", border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text }}
           />
-          <button onClick={() => send()} disabled={load || !inp.trim()} style={{ width: 40, height: 40, background: inp.trim() ? C.pu : C.bd, color: "#fff", border: "none", borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {I?.send ? I.send("white", 18) : "➤"}
+          <button
+            onClick={() => send()}
+            disabled={load || !inp.trim()}
+            style={{ padding: "0 15px", borderRadius: "8px", background: theme.purple, color: "#fff", border: "none", cursor: "pointer" }}
+          >
+            {I?.send ? I.send("white", 16) : "Goý"}
           </button>
         </div>
       </div>
