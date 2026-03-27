@@ -2894,7 +2894,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   // API key - only from Vercel Environment Variables (not visible on GitHub)
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-  const sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
+   sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
 ${langInstr[lang] || langInstr.tk}
 User: ${cu.name}, role: ${cu.role}
 ${isI
@@ -3026,7 +3026,7 @@ Answer in max 3 sentences.`;
       );
     };
 
-    export default AI_Chat;
+
 
 // ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
