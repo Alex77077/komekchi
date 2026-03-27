@@ -82,24 +82,55 @@ function fmtSize(bytes) {
 
 // Supabase real-time helper
 function sbSubscribe(table, callback) {
-  const ws = new WebSocket(
-    SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0"
-  );
-  ws.onopen = () => {
-    ws.send(JSON.stringify({
-      topic: "realtime:public:" + table,
-      event: "phx_join",
-      payload: {},
-      ref: "1"
-    }));
+  const wsUrl = SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0";
+  let ws;
+  let hbInterval;
+  let reconnectTimeout;
+  let closed = false;
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ topic: "realtime:public:" + table, event: "phx_join", payload: { config: { broadcast: { self: true }, presence: { key: "" }, postgres_changes: [{ event: "*", schema: "public", table }] } }, ref: "1" }));
+      // Heartbeat her 25 sekuntda
+      hbInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: "hb" }));
+        }
+      }, 25000);
+    };
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        // Realtime v2: postgres_changes events
+        if (msg.event === "postgres_changes" && msg.payload?.data) {
+          const { type, record, old_record } = msg.payload.data;
+          if (type === "INSERT" || type === "UPDATE" || type === "DELETE") {
+            callback(type, record, old_record);
+          }
+        }
+        // Realtime v1 fallback
+        if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
+          callback(msg.event, msg.payload?.record, msg.payload?.old_record);
+        }
+      } catch {}
+    };
+    ws.onclose = () => {
+      clearInterval(hbInterval);
+      if (!closed) {
+        reconnectTimeout = setTimeout(connect, 5000); // 5s-dan soň täzeden baglan
+      }
+    };
+    ws.onerror = () => { ws.close(); };
+  }
+
+  connect();
+  return () => {
+    closed = true;
+    clearTimeout(reconnectTimeout);
+    clearInterval(hbInterval);
+    if (ws) ws.close();
   };
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
-      callback(msg.event, msg.payload?.record, msg.payload?.old_record);
-    }
-  };
-  return () => ws.close();
 }
 // ──────────────────────────────────────────────────────────────
 
@@ -227,6 +258,17 @@ const gToday = () => {
   const mm = String(d.getMonth()+1).padStart(2,'0');
   const dd = String(d.getDate()).padStart(2,'0');
   return `${yy}-${mm}-${dd}`;
+};
+
+// DB üçin sene formaty: DD.MM.YYYY -> YYYY-MM-DD (köne maglumatlary goraýar)
+const toDbDate = (s) => {
+  if (!s) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // Already YYYY-MM-DD
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) {
+    const [dd, mm, yy] = s.split('.');
+    return `${yy}-${mm}-${dd}`;
+  }
+  return s;
 };
 
 // Görkezmek üçin: YYYY-MM-DD -> DD.MM.YYYY
@@ -1696,7 +1738,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const w  = workers.find((x) => x.id === wid);
     const nm = w ? w.name : "?";
     try {
-      const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
+      const newA = { id: uid(), wid, date: toDbDate(gToday()), check_in: now, check_out: null, edited: false };
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
       setAttend((p) => [...p, newA]);
@@ -1910,26 +1952,26 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:3}}>{I.warning(C.yw,10)} Giç</span></Chip>}
               </div>
               {/* Aşaky setir — wagt + düwmeler */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                {/* Giriş */}
-                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.gn}33` }}>
-                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.entry}</span>
-                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                {/* Wagt belgileri */}
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:4, background:C.sf, borderRadius:8, padding:"4px 9px", border:`1px solid ${C.gn}33` }}>
+                    <span style={{ fontSize:9, color:C.txM, fontWeight:700, textTransform:"uppercase" }}>{tl.entry}</span>
+                    <span style={{ fontSize:13, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</span>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:4, background:C.sf, borderRadius:8, padding:"4px 9px", border:`1px solid ${C.rd}33` }}>
+                    <span style={{ fontSize:9, color:C.txM, fontWeight:700, textTransform:"uppercase" }}>{tl.exit}</span>
+                    <span style={{ fontSize:13, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
+                  </div>
+                  {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
                 </div>
-                {/* Çykyş */}
-                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.rd}33` }}>
-                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.exit}</span>
-                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
-                </div>
-                {/* Işlän wagt */}
-                {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
-                {/* Düwmeler — sagda */}
-                <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+                {/* Düwmeler */}
+                <div style={{ display:"flex", gap:5, flexShrink:0 }}>
                   {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
                   {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.door(C.rd,13)} Gitdi</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
                   {done && !isAdmin && <Chip color={C.ac} sm>✓ Tamam</Chip>}
                   {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
-                  {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), check_in: "", check_out: null, edited: false, _new: true })} />}
+                  {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: toDbDate(gToday()), check_in: "", check_out: null, edited: false, _new: true })} />}
                 </div>
               </div>
             </div>
@@ -2849,6 +2891,9 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     en: "Reply ONLY in ENGLISH. Keep it brief and helpful.",
   };
 
+  // API key - only from Vercel Environment Variables (not visible on GitHub)
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+
   const sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
 ${langInstr[lang] || langInstr.tk}
 User: ${cu.name}, role: ${cu.role}
@@ -2859,122 +2904,130 @@ At work: ${workers.filter((w) => w.status === "işde").map((w) => w.name).join("
 Tasks: Todo=${tasks.filter((t) => t.col === "Etmeli").length}, Done=${tasks.filter((t) => t.col === "Tamamlandy").length}
 Overdue: ${overdue}`}
 Answer in max 3 sentences.`;
-// Vercel we Vite üçin API açaryny Environment Variable-dan alýarys
-      // GitHub bloklamazlygy üçin açaryňyzy diňe Vercel Settings-e goşuň!
-      const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-    const send = async (txt) => {
-    const msg = (txt || inp).trim();
-    if (!msg || load) return;
-    setInp("");
-    const nm = [...msgs, { role: "user", content: msg }];
-    setMsgs(nm);
-    setLoad(true);
 
-    if (!GROQ_API_KEY) {
-      setMsgs((p) => [...p, {
-        role: "assistant",
-        content: "⚙️ AI işlemek üçin Groq API açaryny App.jsx faýlynda GROQ_API_KEY ýerine goýuň.\n\n1. console.groq.com açyň\n2. Hasap açyň (mugt)\n3. API Keys -> Create API Key\n4. Açary App.jsx-däki GROQ_API_KEY = \"\" içine goýuň",
-      }]);
-      setLoad(false);
-      return;
-    }
+      const send = async (txt) => {
+        const msg = (txt || inp).trim();
+        if (!msg || load) return;
 
-    try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 600,
-          messages: [
-            { role: "system", content: sysPrompt },
-            ...nm.map((m) => ({ role: m.role, content: m.content })),
-          ],
-        }),
-      });
-      const d = await r.json();
-      const text = d.choices && d.choices[0] && d.choices[0].message
-        ? d.choices[0].message.content
-        : "Ötünç, jogap alyp bolmady.";
-      setMsgs((p) => [...p, { role: "assistant", content: text }]);
-    } catch {
-      setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
-    }
-    setLoad(false);
-  };
+        setInp("");
+        const nm = [...msgs, { role: "user", content: msg }];
+        setMsgs(nm);
+        setLoad(true);
 
-  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
+        if (!GROQ_API_KEY) {
+          setMsgs((p) => [...p, {
+            role: "assistant",
+            content: "⚙️ AI işlemek üçin Groq API açaryny sazlamaly.\n\n1. console.groq.com açyň\n2. API Keys -> Create API Key\n3. Vercel-de VITE_GROQ_API_KEY ady bilen goşuň.",
+          }]);
+          setLoad(false);
+          return;
+        }
 
-  return (
-    <div
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
-    >
-      <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
-        {/* Header */}
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
-            <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.gn, display: "inline-block" }} />
-              <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
+        try {
+          const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              max_tokens: 600,
+              messages: [
+                { role: "system", content: sysPrompt },
+                ...nm.map((m) => ({ role: m.role, content: m.content })),
+              ],
+            }),
+          });
+
+          const d = await r.json();
+          const text = d.choices && d.choices[0] && d.choices[0].message
+            ? d.choices[0].message.content
+            : (d.error ? `Groq ýalňyşlygy: ${d.error.message}` : "Ötünç, jogap alyp bolmady.");
+          setMsgs((p) => [...p, { role: "assistant", content: text }]);
+        } catch(err) {
+          setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň. (" + (err.message||"") + ")" }]);
+        }
+        setLoad(false);
+      };
+
+      useEffect(() => {
+        if (endRef.current) {
+          endRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, [msgs, load]);
+
+      return (
+        <div
+          onClick={(e) => e.target === e.currentTarget && onClose()}
+          style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
+        >
+          <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
+
+            {/* Header */}
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white", 20)}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
+                <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.gn, display: "inline-block" }} />
+                  <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
+                </div>
+              </div>
+              <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
+            </div>
+
+            {/* Çalt soraglar */}
+            <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {QK.map((q) => (
+                <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
+              ))}
+            </div>
+
+            {/* Mesajlar */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
+              {msgs.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
+                  {m.role === "assistant" && (
+                    <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
+                  )}
+                  <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
+                </div>
+              ))}
+              {load && (
+                <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
+                  <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
+                    {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
+                  </div>
+                </div>
+              )}
+              <div ref={endRef} />
+            </div>
+
+            {/* Input */}
+            <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
+              <input
+                value={inp}
+                onChange={(e) => setInp(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+                disabled={load}
+                placeholder={tl.aiPh}
+                style={{ flex: 1, padding: "9px 14px", borderRadius: 12, fontSize: 13, background: C.cd, border: `1.5px solid ${C.bd}`, color: C.tx, fontFamily: "inherit" }}
+              />
+              <button
+                onClick={() => send()}
+                disabled={load || !inp.trim()}
+                style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+              >{I.send("white", 17)}</button>
             </div>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
         </div>
+      );
+    };
 
-        {/* Çalt soraglar */}
-        <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
-          {QK.map((q) => (
-            <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
-          ))}
-        </div>
+    export default AI_Chat;
 
-        {/* Mesajlar */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
-          {msgs.map((m, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
-              {m.role === "assistant" && (
-                <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
-              )}
-              <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
-            </div>
-          ))}
-          {load && (
-            <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
-              <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
-                {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
-              </div>
-            </div>
-          )}
-          <div ref={endRef} />
-        </div>
-
-        {/* Input */}
-        <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
-          <input
-            value={inp}
-            onChange={(e) => setInp(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-            disabled={load}
-            placeholder={tl.aiPh}
-            style={{ flex: 1, padding: "9px 14px", borderRadius: 12, fontSize: 13, background: C.cd, border: `1.5px solid ${C.bd}`, color: C.tx, fontFamily: "inherit" }}
-          />
-          <button
-            onClick={() => send()}
-            disabled={load || !inp.trim()}
-            style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >{I.send("white",17)}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 // ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
   return [
@@ -3040,7 +3093,7 @@ export default function App() {
         ]);
         setWorkers(w || []);
         setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
-        setAttend(a || []);
+        setAttend((a || []).map(x => ({ ...x, date: toDbDate(x.date) || x.date })));
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
