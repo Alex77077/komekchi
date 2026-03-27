@@ -2905,32 +2905,9 @@ Answer in max 3 sentences.`;
     setLoad(false);
   };
 
- useEffect(() => {
-   // Supabase-e "Meniň tasklarymdaky üýtgeşmeleri maňa aýt" diýýäris
-   const channel = supabase
-     .channel('custom-all-channel')
-     .on(
-       'postgres_changes',
-       { event: '*', schema: 'public', table: 'tasks' },
-       (payload) => {
-         // payload.new — bu täze gelen ýa-da üýtgeýän task
-         console.log('Üýtgeşme bar!', payload);
+  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
-         if (payload.eventType === 'INSERT') {
-           setTasks((prev) => [...prev, payload.new]);
-         } else if (payload.eventType === 'UPDATE') {
-           setTasks((prev) => prev.map(t => t.id === payload.new.id ? payload.new : t));
-         } else if (payload.eventType === 'DELETE') {
-           setTasks((prev) => prev.filter(t => t.id !== payload.old.id));
-         }
-       }
-     )
-     .subscribe();
-
-   return () => {
-     supabase.removeChannel(channel);
-   };
- }, []);
+  return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
