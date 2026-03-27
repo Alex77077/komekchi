@@ -82,24 +82,66 @@ function fmtSize(bytes) {
 
 // Supabase real-time helper
 function sbSubscribe(table, callback) {
-  const ws = new WebSocket(
-    SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0"
-  );
-  ws.onopen = () => {
-    ws.send(JSON.stringify({
-      topic: "realtime:public:" + table,
-      event: "phx_join",
-      payload: {},
-      ref: "1"
-    }));
+  let ws = null;
+  let hbInterval = null;
+  let reconnectTimer = null;
+  let active = true;
+  let ref = 1;
+
+  function connect() {
+    if (!active) return;
+    try {
+      ws = new WebSocket(
+        SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0"
+      );
+
+      ws.onopen = () => {
+        // Kanala goşul
+        ws.send(JSON.stringify({
+          topic: "realtime:public:" + table,
+          event: "phx_join",
+          payload: {},
+          ref: String(ref++)
+        }));
+        // Heartbeat — 25s-de bir (Supabase 60s-de disconnect edýär)
+        hbInterval = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(ref++) }));
+          }
+        }, 25000);
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
+            callback(msg.event, msg.payload?.record, msg.payload?.old_record);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearInterval(hbInterval);
+      };
+
+      ws.onclose = () => {
+        clearInterval(hbInterval);
+        // 5s sonra täzeden baglan
+        if (active) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
+      };
+    } catch {}
+  }
+
+  connect();
+
+  return () => {
+    active = false;
+    clearInterval(hbInterval);
+    clearTimeout(reconnectTimer);
+    if (ws) ws.close();
   };
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
-      callback(msg.event, msg.payload?.record, msg.payload?.old_record);
-    }
-  };
-  return () => ws.close();
 }
 // ──────────────────────────────────────────────────────────────
 
@@ -2358,9 +2400,11 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
         await sbFetch(`tasks?id=eq.${t.id}`, "PATCH", dbT);
         setTasks((p) => p.map((x) => x.id === t.id ? t : x));
       } else {
-        await sbFetch("tasks", "POST", dbT);
+        const saved = await sbFetch("tasks", "POST", dbT);
+        // State derrew täzelen — real-time-a garaşma
+        const newTask = { ...t, ...(Array.isArray(saved) ? saved[0] : {}), desc: t.desc || t.description || "" };
+        setTasks(p => [...p, newTask]);
         toast(tl.taskCreated, t.title, "ok");
-        // INSERT real-time arkaly gelýär — setTasks gerek däl
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
@@ -2489,6 +2533,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
       } else {
         const nw = { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde", dept_id: deptId };
         await sbFetch("workers", "POST", nw);
+        setWorkers(p => [...p, nw]);
         toast(tl.toastWorkerAdded, wF.name, "ok");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
@@ -2511,6 +2556,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
       } else {
         const newU = { id: "u" + Date.now(), ...uF, wid: uF.wid || null };
         await sbFetch("users", "POST", newU);
+        setUsers(p => [...p, newU]);
         toast(tl.toastUserAdded, uF.name, "ok");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
@@ -2719,6 +2765,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       } else {
                         const nd = { id: "d" + Date.now(), name: dF.name };
                         await sbFetch("depts", "POST", nd);
+                        setDepts(p => [...p, nd]);
                         toast("Bölüm goşuldy", dF.name, "ok");
                       }
                       setDMod(false);
@@ -2869,38 +2916,53 @@ Answer in max 3 sentences.`;
     setMsgs(nm);
     setLoad(true);
 
-    if (!GROQ_API_KEY) {
-      setMsgs((p) => [...p, {
-        role: "assistant",
-        content: "⚙️ AI işlemek üçin Groq API açaryny App.jsx faýlynda GROQ_API_KEY ýerine goýuň.\n\n1. console.groq.com açyň\n2. Hasap açyň (mugt)\n3. API Keys -> Create API Key\n4. Açary App.jsx-däki GROQ_API_KEY = \"\" içine goýuň",
-      }]);
-      setLoad(false);
-      return;
-    }
 
     try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 600,
-          messages: [
-            { role: "system", content: sysPrompt },
-            ...nm.map((m) => ({ role: m.role, content: m.content })),
-          ],
-        }),
-      });
-      const d = await r.json();
-      const text = d.choices && d.choices[0] && d.choices[0].message
-        ? d.choices[0].message.content
-        : "Ötünç, jogap alyp bolmady.";
-      setMsgs((p) => [...p, { role: "assistant", content: text }]);
+      const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
+      let answered = false;
+
+      if (GROQ_KEY) {
+        try {
+          const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              max_tokens: 500,
+              messages: [
+                { role: "system", content: sysPrompt },
+                ...nm.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
+              ],
+            }),
+          });
+          const d = await r.json();
+          if (r.ok && d.choices?.[0]?.message?.content) {
+            setMsgs(p => [...p, { role: "assistant", content: d.choices[0].message.content }]);
+            answered = true;
+          }
+        } catch {}
+      }
+
+      if (!answered) {
+        const r2 = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 500,
+            system: sysPrompt,
+            messages: nm.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
+          }),
+        });
+        const d2 = await r2.json();
+        setMsgs(p => [...p, { role: "assistant", content: d2.content?.[0]?.text || "Ötünç, jogap alyp bolmady." }]);
+      }
     } catch {
-      setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň." }]);
+      setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
     }
     setLoad(false);
   };
@@ -3059,30 +3121,36 @@ export default function App() {
   useEffect(() => {
     const unsubs = [
       sbSubscribe("workers", (ev, rec, old) => {
-        if (ev === "INSERT") setWorkers(p => [...p, rec]);
+        if (!rec && ev !== "DELETE") return;
+        if (ev === "INSERT") setWorkers(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setWorkers(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== old.id));
+        if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
       sbSubscribe("tasks", (ev, rec, old) => {
-        const r = rec ? { ...rec, desc: rec.description || "", comments: rec.comments || [] } : rec;
-        if (ev === "INSERT") setTasks(p => [...p, r]);
+        if (!rec && ev !== "DELETE") return;
+        const r = rec ? { ...rec, desc: rec.description || "", comments: rec.comments || [], files: rec.files || [] } : rec;
+        // INSERT: real-time arkaly gelýär — eger eýýäm bar bolsa goşma (double)
+        if (ev === "INSERT") setTasks(p => p.find(x => x.id === r.id) ? p : [...p, r]);
         if (ev === "UPDATE") setTasks(p => p.map(x => x.id === r.id ? r : x));
-        if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== old.id));
+        if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
       sbSubscribe("attend", (ev, rec, old) => {
-        if (ev === "INSERT") setAttend(p => [...p, rec]);
+        if (!rec && ev !== "DELETE") return;
+        if (ev === "INSERT") setAttend(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setAttend(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setAttend(p => p.filter(x => x.id !== old.id));
+        if (ev === "DELETE") setAttend(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
       sbSubscribe("users", (ev, rec, old) => {
-        if (ev === "INSERT") setUsers(p => [...p, rec]);
+        if (!rec && ev !== "DELETE") return;
+        if (ev === "INSERT") setUsers(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setUsers(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setUsers(p => p.filter(x => x.id !== old.id));
+        if (ev === "DELETE") setUsers(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
       sbSubscribe("depts", (ev, rec, old) => {
-        if (ev === "INSERT") setDepts(p => [...p, rec]);
+        if (!rec && ev !== "DELETE") return;
+        if (ev === "INSERT") setDepts(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setDepts(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setDepts(p => p.filter(x => x.id !== old.id));
+        if (ev === "DELETE") setDepts(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
     ];
     return () => unsubs.forEach(fn => fn());
