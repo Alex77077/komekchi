@@ -82,55 +82,24 @@ function fmtSize(bytes) {
 
 // Supabase real-time helper
 function sbSubscribe(table, callback) {
-  const wsUrl = SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0";
-  let ws;
-  let hbInterval;
-  let reconnectTimeout;
-  let closed = false;
-
-  function connect() {
-    ws = new WebSocket(wsUrl);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ topic: "realtime:public:" + table, event: "phx_join", payload: { config: { broadcast: { self: true }, presence: { key: "" }, postgres_changes: [{ event: "*", schema: "public", table }] } }, ref: "1" }));
-      // Heartbeat her 25 sekuntda
-      hbInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: "hb" }));
-        }
-      }, 25000);
-    };
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        // Realtime v2: postgres_changes events
-        if (msg.event === "postgres_changes" && msg.payload?.data) {
-          const { type, record, old_record } = msg.payload.data;
-          if (type === "INSERT" || type === "UPDATE" || type === "DELETE") {
-            callback(type, record, old_record);
-          }
-        }
-        // Realtime v1 fallback
-        if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
-          callback(msg.event, msg.payload?.record, msg.payload?.old_record);
-        }
-      } catch {}
-    };
-    ws.onclose = () => {
-      clearInterval(hbInterval);
-      if (!closed) {
-        reconnectTimeout = setTimeout(connect, 5000); // 5s-dan soň täzeden baglan
-      }
-    };
-    ws.onerror = () => { ws.close(); };
-  }
-
-  connect();
-  return () => {
-    closed = true;
-    clearTimeout(reconnectTimeout);
-    clearInterval(hbInterval);
-    if (ws) ws.close();
+  const ws = new WebSocket(
+    SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0"
+  );
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      topic: "realtime:public:" + table,
+      event: "phx_join",
+      payload: {},
+      ref: "1"
+    }));
   };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
+      callback(msg.event, msg.payload?.record, msg.payload?.old_record);
+    }
+  };
+  return () => ws.close();
 }
 // ──────────────────────────────────────────────────────────────
 
@@ -258,17 +227,6 @@ const gToday = () => {
   const mm = String(d.getMonth()+1).padStart(2,'0');
   const dd = String(d.getDate()).padStart(2,'0');
   return `${yy}-${mm}-${dd}`;
-};
-
-// DB üçin sene formaty: DD.MM.YYYY -> YYYY-MM-DD (köne maglumatlary goraýar)
-const toDbDate = (s) => {
-  if (!s) return s;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // Already YYYY-MM-DD
-  if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) {
-    const [dd, mm, yy] = s.split('.');
-    return `${yy}-${mm}-${dd}`;
-  }
-  return s;
 };
 
 // Görkezmek üçin: YYYY-MM-DD -> DD.MM.YYYY
@@ -1673,19 +1631,18 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
           ) : (
             <div style={{ background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 17, padding: 18 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: C.tx, marginBottom: 14 }}>{tl.taskStatus}</div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80, padding: "0 4px" }}>
+              <div style={{ display:"flex", alignItems:"flex-end", gap:4, paddingTop:20 }}>
                 {COLS.map((col) => {
                   const cnt  = tasks.filter((t) => t.col === col).length;
                   const total= tasks.length || 1;
-                  const pct  = cnt / total;
-                  const h    = Math.max(12, Math.round(pct * 60));
+                  const h    = total > 0 ? Math.max(6, Math.round((cnt/total)*56)) : 6;
                   const clr  = CM[col].c;
-                  const lbl  = getColLabel(col, tl);
+                  const lbl  = getColLabel(col, tl).split(" ")[0];
                   return (
-                    <div key={col} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
-                      <span style={{ fontSize: 13, fontWeight: 900, color: clr, lineHeight: 1 }}>{cnt}</span>
-                      <div style={{ width: "80%", height: h, borderRadius: "4px 4px 0 0", background: `linear-gradient(180deg,${clr},${clr}55)`, transition: "height .6s ease" }} />
-                      <span style={{ fontSize: 9, color: C.txM, textAlign: "center", width: "100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{lbl.split(" ")[0]}</span>
+                    <div key={col} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, minWidth:0 }}>
+                      <span style={{ fontSize:12, fontWeight:900, color:clr }}>{cnt}</span>
+                      <div style={{ width:"75%", minHeight:6, height:h, borderRadius:"3px 3px 0 0", background:`linear-gradient(180deg,${clr},${clr}44)`, transition:"height .5s" }} />
+                      <span style={{ fontSize:9, color:C.txM, textAlign:"center", width:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", paddingTop:2 }}>{lbl}</span>
                     </div>
                   );
                 })}
@@ -1738,7 +1695,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const w  = workers.find((x) => x.id === wid);
     const nm = w ? w.name : "?";
     try {
-      const newA = { id: uid(), wid, date: toDbDate(gToday()), check_in: now, check_out: null, edited: false };
+      const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
       setAttend((p) => [...p, newA]);
@@ -1952,26 +1909,26 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:3}}>{I.warning(C.yw,10)} Giç</span></Chip>}
               </div>
               {/* Aşaky setir — wagt + düwmeler */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                {/* Wagt belgileri */}
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:4, background:C.sf, borderRadius:8, padding:"4px 9px", border:`1px solid ${C.gn}33` }}>
-                    <span style={{ fontSize:9, color:C.txM, fontWeight:700, textTransform:"uppercase" }}>{tl.entry}</span>
-                    <span style={{ fontSize:13, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</span>
-                  </div>
-                  <div style={{ display:"flex", alignItems:"center", gap:4, background:C.sf, borderRadius:8, padding:"4px 9px", border:`1px solid ${C.rd}33` }}>
-                    <span style={{ fontSize:9, color:C.txM, fontWeight:700, textTransform:"uppercase" }}>{tl.exit}</span>
-                    <span style={{ fontSize:13, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
-                  </div>
-                  {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {/* Giriş */}
+                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.gn}33` }}>
+                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.entry}</span>
+                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_in ? C.gn : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_in || "—:—"}</span>
                 </div>
-                {/* Düwmeler */}
-                <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                {/* Çykyş */}
+                <div style={{ display:"flex", alignItems:"center", gap:5, background:C.sf, borderRadius:9, padding:"5px 10px", border:`1px solid ${C.rd}33` }}>
+                  <span style={{ fontSize:10, color:C.txM, fontWeight:700 }}>{tl.exit}</span>
+                  <span style={{ fontSize:15, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
+                </div>
+                {/* Işlän wagt */}
+                {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
+                {/* Düwmeler — sagda */}
+                <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
                   {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
                   {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.door(C.rd,13)} Gitdi</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
                   {done && !isAdmin && <Chip color={C.ac} sm>✓ Tamam</Chip>}
                   {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
-                  {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: toDbDate(gToday()), check_in: "", check_out: null, edited: false, _new: true })} />}
+                  {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), check_in: "", check_out: null, edited: false, _new: true })} />}
                 </div>
               </div>
             </div>
@@ -2399,11 +2356,12 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
       const exists = tasks.find((x) => x.id === t.id);
       if (exists) {
         await sbFetch(`tasks?id=eq.${t.id}`, "PATCH", dbT);
+        setTasks((p) => p.map((x) => x.id === t.id ? t : x));
       } else {
         await sbFetch("tasks", "POST", dbT);
         toast(tl.taskCreated, t.title, "ok");
+        // INSERT real-time arkaly gelýär — setTasks gerek däl
       }
-      setTasks((p) => { const e = p.find((x) => x.id === t.id); return e ? p.map((x) => x.id === t.id ? t : x) : [...p, t]; });
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
@@ -2531,7 +2489,6 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
       } else {
         const nw = { id: "w" + Date.now(), name: wF.name, pos: wF.pos, av: ini, status: "öýde", dept_id: deptId };
         await sbFetch("workers", "POST", nw);
-        setWorkers((p) => [...p, nw]);
         toast(tl.toastWorkerAdded, wF.name, "ok");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
@@ -2554,7 +2511,6 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
       } else {
         const newU = { id: "u" + Date.now(), ...uF, wid: uF.wid || null };
         await sbFetch("users", "POST", newU);
-        setUsers((p) => [...p, newU]);
         toast(tl.toastUserAdded, uF.name, "ok");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
@@ -2763,7 +2719,6 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       } else {
                         const nd = { id: "d" + Date.now(), name: dF.name };
                         await sbFetch("depts", "POST", nd);
-                        setDepts(p => [...p, nd]);
                         toast("Bölüm goşuldy", dF.name, "ok");
                       }
                       setDMod(false);
@@ -2891,10 +2846,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     en: "Reply ONLY in ENGLISH. Keep it brief and helpful.",
   };
 
-  // API key - only from Vercel Environment Variables (not visible on GitHub)
-  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-
-   sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
+  const sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
 ${langInstr[lang] || langInstr.tk}
 User: ${cu.name}, role: ${cu.role}
 ${isI
@@ -2904,7 +2856,19 @@ At work: ${workers.filter((w) => w.status === "işde").map((w) => w.name).join("
 Tasks: Todo=${tasks.filter((t) => t.col === "Etmeli").length}, Done=${tasks.filter((t) => t.col === "Tamamlandy").length}
 Overdue: ${overdue}`}
 Answer in max 3 sentences.`;
+// Vercel we Vite üçin API açaryny Environment Variable-dan alýarys
+      // GitHub bloklamazlygy üçin açaryňyzy diňe Vercel Settings-e goşuň!
+      const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+const sysPrompt = `
+  Sen "Komekci" atly programmanyň resmi AI kömekçisi.
+  Bu programma işgärleriň gatnaşygyny, wezipelerini (tasks) we bölümlerini dolandyrýar.
 
+  Seniň wezipeleriň:
+  1. Ulanyjy programma barada sorasa (mysal: "Işgär goşmak", "Task näme?"), olara kömek et.
+  2. Jogaplaryňy Türkmen, Rus we Iňlis dillerinde berip bilýärsiň.
+  3. Eger ulanyjy kynçylyk çekse, ädimme-ädim nähili ulanmalydygyny düşündir.
+  4. Sen diňe "Komekci" programmasy barada däl, umumy soraglara-da jogap berýärsiň.
+`;
       const send = async (txt) => {
         const msg = (txt || inp).trim();
         if (!msg || load) return;
@@ -2914,42 +2878,61 @@ Answer in max 3 sentences.`;
         setMsgs(nm);
         setLoad(true);
 
-        if (!GROQ_API_KEY) {
-          setMsgs((p) => [...p, {
-            role: "assistant",
-            content: "⚙️ AI işlemek üçin Groq API açaryny sazlamaly.\n\n1. console.groq.com açyň\n2. API Keys -> Create API Key\n3. Vercel-de VITE_GROQ_API_KEY ady bilen goşuň.",
-          }]);
-          setLoad(false);
-          return;
-        }
+            try {
+      // Esasy: Groq API (çalt, mugt)
+      const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
+      let answered = false;
 
+      if (GROQ_KEY) {
         try {
           const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${GROQ_API_KEY}`,
+              "Authorization": `Bearer ${GROQ_KEY}`,
             },
             body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              max_tokens: 600,
+              model: "llama-3.3-70b-versatile",
+              max_tokens: 500,
               messages: [
                 { role: "system", content: sysPrompt },
-                ...nm.map((m) => ({ role: m.role, content: m.content })),
+                ...nm.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
               ],
             }),
           });
-
           const d = await r.json();
-          const text = d.choices && d.choices[0] && d.choices[0].message
-            ? d.choices[0].message.content
-            : (d.error ? `Groq ýalňyşlygy: ${d.error.message}` : "Ötünç, jogap alyp bolmady.");
-          setMsgs((p) => [...p, { role: "assistant", content: text }]);
-        } catch(err) {
-          setMsgs((p) => [...p, { role: "assistant", content: "Bağlantý ýalňyşlygy. Internet bağlantyňyzy barlaň. (" + (err.message||"") + ")" }]);
-        }
-        setLoad(false);
-      };
+          if (r.ok && d.choices?.[0]?.message?.content) {
+            setMsgs(p => [...p, { role: "assistant", content: d.choices[0].message.content }]);
+            answered = true;
+          }
+        } catch { /* Groq işlemese Anthropic synla */ }
+      }
+
+      // Yedek: Anthropic API
+      if (!answered) {
+        const r2 = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 500,
+            system: sysPrompt,
+            messages: nm.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
+          }),
+        });
+        const d2 = await r2.json();
+        const txt = d2.content?.[0]?.text || "Ötünç, jogap alyp bolmady.";
+        setMsgs(p => [...p, { role: "assistant", content: txt }]);
+      }
+    } catch {
+      setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
+    }
+    setLoad(false);
+  };
 
       useEffect(() => {
         if (endRef.current) {
@@ -3026,7 +3009,7 @@ Answer in max 3 sentences.`;
       );
     };
 
-
+    export default AI_Chat;
 
 // ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
@@ -3093,7 +3076,7 @@ export default function App() {
         ]);
         setWorkers(w || []);
         setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
-        setAttend((a || []).map(x => ({ ...x, date: toDbDate(x.date) || x.date })));
+        setAttend(a || []);
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
