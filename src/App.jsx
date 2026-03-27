@@ -314,7 +314,7 @@ const TK = {
   addWorker:"Işgär goş",addUser:"Ulanyjy goş",
   editWorker:"Işgäri üýtget",newWorker:"Täze işgär",
   editUser:"Ulanyjy üýtget",newUser:"Täze ulanyjy",
-  fullName:"Ady Soýady",position:"Wezipesi",
+  fullName:"Ady Familiyasy",position:"Wezipesi",
   initials:"Başlangyç harplar (mysal: MA)",
   roleLabel:"Roly",linkWorker:"Işgär bilen baglaň",selectWorker:"— Saýlaň —",
   noWorkersAdmin:"Heniz işgär ýok. Ilki işgär goşuň, soňra ulanyjy döredip oňa baglaň.",
@@ -343,7 +343,7 @@ const TK = {
   aiTitle:"AI Kömekçi",aiActive:"Işjeň",
   aiQMyTasks:"Tabşyryklam?",aiQToday:"Şu gün näme etmeli?",
   aiQAdvice:"Maslahat ber",aiQEfficiency:"Nädip has netijeli?",
-  aiQWho:"Işdä kim bar?",aiQOverdue:"Möhleti geçenler?",
+  aiQWho:"Işde kim bar?",aiQOverdue:"Möhleti geçenler?",
   aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnama düz",
   aiPh:"Sorag ýazyň...",
   aiGreet:"Salam",aiGreetMsg:"Men Kömekçiniň AI kömekçisi. Nähili kömek edip bilerin?",
@@ -481,7 +481,7 @@ const EN = {
   navHome:"Home",navAttend:"Attendance",navTasks:"Tasks",
   navAdmin:"Admin",navReport:"Reports",
   welcome:"Welcome",
-  inOffice:"At Work",inProgress:"In Progress",waiting:"Etmeli",done:"Done",
+  inOffice:"At Work",inProgress:"In Progress",waiting:"Waiting",done:"Done",
   workers:"Employees",myTasks:"My Tasks",
   recentActivity:"Recent Activity",noActivity:"No activity yet",
   noWorkers:"No employees yet",noTasks:"No tasks",
@@ -2905,9 +2905,32 @@ Answer in max 3 sentences.`;
     setLoad(false);
   };
 
-  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
+ useEffect(() => {
+   // Supabase-e "Meniň tasklarymdaky üýtgeşmeleri maňa aýt" diýýäris
+   const channel = supabase
+     .channel('custom-all-channel')
+     .on(
+       'postgres_changes',
+       { event: '*', schema: 'public', table: 'tasks' },
+       (payload) => {
+         // payload.new — bu täze gelen ýa-da üýtgeýän task
+         console.log('Üýtgeşme bar!', payload);
 
-  return (
+         if (payload.eventType === 'INSERT') {
+           setTasks((prev) => [...prev, payload.new]);
+         } else if (payload.eventType === 'UPDATE') {
+           setTasks((prev) => prev.map(t => t.id === payload.new.id ? payload.new : t));
+         } else if (payload.eventType === 'DELETE') {
+           setTasks((prev) => prev.filter(t => t.id !== payload.old.id));
+         }
+       }
+     )
+     .subscribe();
+
+   return () => {
+     supabase.removeChannel(channel);
+   };
+ }, []);
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
