@@ -1747,21 +1747,18 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const nm = w ? w.name : "?";
     try {
       const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
-      // ÖŇDEN state täzele — real-time gelende duplicate bolmaz
-      setAttend((p) => p.find(x => x.id === newA.id) ? p : [...p, newA]);
-      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
+      // Supabase-e ýaz
+      await sbFetch("attend", "POST", newA);
+      await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
+      // State täzele — POST üstünlikli bolandan SOŇ (goşa bolmaz)
+      setAttend(p => p.find(x => x.wid === wid && x.date === gToday()) ? p : [...p, newA]);
+      setWorkers(p => p.map(w => w.id === wid ? { ...w, status: "işde" } : w));
       // Bildiriş
       if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} | Iş: ${settings.workStart}–${settings.workEnd}`, "info");
       else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} | Iş: ${settings.workStart}-dan başlaýar`, "info");
       else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} | Iş: ${settings.workStart}`, "info");
       else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
-      // Soňra Supabase-e ýaz
-      await sbFetch("attend", "POST", newA);
-      await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
     } catch(e) {
-      // Ýalňyşlykda state yzyna al
-      setAttend((p) => p.filter(a => a.id !== newA?.id));
-      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
       toast("Ýalňyşlyk", e.message, "err");
     }
   };
@@ -1770,17 +1767,14 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const now = gNow();
     const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.check_out);
     const w   = workers.find((x) => x.id === wid);
-    // ÖŇDEN state täzele
-    setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
-    setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "öýde" } : wk));
-    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now} | Işlän: ${rec ? calcH(rec.check_in, now) || "—" : "—"}`, "info");
     try {
       if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { check_out: now });
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "öýde" });
+      // POST üstünlikli → state täzele
+      setAttend(p => p.map(a => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
+      setWorkers(p => p.map(wk => wk.id === wid ? { ...wk, status: "öýde" } : wk));
+      toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now} | Işlän: ${rec ? calcH(rec.check_in, now) || "—" : "—"}`, "info");
     } catch(e) {
-      // Ýalňyşlykda yzyna al
-      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && a.check_out === now ? { ...a, check_out: null } : a));
-      setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "işde" } : wk));
       toast("Ýalňyşlyk", e.message, "err");
     }
   };
@@ -3144,7 +3138,7 @@ export default function App() {
         ]);
         setWorkers(w || []);
         setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
-        //setAttend(a || []);
+        setAttend(a || []);
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
@@ -3178,7 +3172,13 @@ export default function App() {
       }),
       sbSubscribe("attend", (ev, rec, old) => {
         if (!rec && ev !== "DELETE") return;
-        if (ev === "INSERT") setAttend(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
+        if (ev === "INSERT") setAttend(p => {
+          // id boýunça dedup
+          if (p.find(x => x.id === rec.id)) return p;
+          // wid+date boýunça dedup (goşa giriş bolmasyn)
+          if (rec.check_in && p.find(x => x.wid === rec.wid && x.date === rec.date && !x.check_out && !rec.check_out)) return p;
+          return [...p, rec];
+        });
         if (ev === "UPDATE") setAttend(p => p.map(x => x.id === rec.id ? rec : x));
         if (ev === "DELETE") setAttend(p => p.filter(x => x.id !== (old?.id || rec?.id)));
       }),
