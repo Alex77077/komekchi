@@ -3144,7 +3144,7 @@ export default function App() {
         ]);
         setWorkers(w || []);
         setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
-        setAttend(a || []);
+        //setAttend(a || []);
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
