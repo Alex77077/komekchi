@@ -1756,7 +1756,19 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} | Iş: ${settings.workStart}`, "info");
       else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
       // Soňra Supabase-e ýaz
-      await sbFetch("attend", "POST", newA);
+      const res=await sbFetch("attend", "POST", newA);
+      if (res) {
+        // 🔥 TÄZE GOŞULMALY BÖLEK:
+        // Bu kod 'workers' tablisasyndaky statusy hemişelik üýtgeder
+        await sbFetch(`workers?wid=eq.${cu.wid}`, "PATCH", {
+          status: type === "in" ? "işde" : "gitdi"
+        });
+
+        // Maglumatlary täzeden çekmek (fetchData)
+        await fetchData();
+
+        toast(type === "in" ? tl.toastIn : tl.toastOut);
+      }
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
     } catch(e) {
       // Ýalňyşlykda state yzyna al
