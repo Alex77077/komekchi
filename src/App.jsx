@@ -319,19 +319,19 @@ const TK = {
   welcome:"Hoş geldiňiz",
   inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Etmeli",done:"Tamamlandy",
   workers:"Işgärler",myTasks:"Meniň Tabşyryklam",
-  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket bellenilmedi",
+  recentActivity:"Soňky hereketler",noActivity:"Heniz hereket ýok",
   noWorkers:"Heniz işgär goşulmady",noTasks:"Tabşyryk ýok",
   workTime:"Iş wagty",overdueAlert:"tabşyrykda möhlet geçdi!",
   dueTodayAlert:"tabşyrygyň möhleti şu gün gutarýar",
   lateAlert:"Giç gelenler",taskStatus:"Tabşyryklar ýagdaýy",
   cameIn:"işe geldi",wentOut:"işden çykdy",
   myAttend:"Meniň gatnawy",attendTitle:"Gatnawyň hasaby",
-  checkIn:"Işe geldim ✅",checkOut:"Işden gidýärin 👋",
+  checkIn:"Işe geldim",checkOut:"Işden gidýärin",
   checkInHint:"Işe geleniňizde şu düwmä basyň",
   checkOutHint:"Gitmezden öň şu düwmä basyň",
-  todayDone:"🎉 Şu günki iş üstünlikli tamamlandy!",
+  todayDone:"Şu günki iş tamamlandy! 🎉",
   entry:"Giriş",exit:"Çykyş",worked:"Işlän",
-  noRecord:"Gatnawy ýazgylary ýok",atWork:"Işde",last7:"Soňky 7 günüm",
+  noRecord:"Taryh ýok",atWork:"Işde",last7:"Soňky 7 günüm",
   archive:"3 Aýlyk Arhiw",allWorkers:"Ähli işgär",allMonths:"Ähli aý",
   csvDownload:"CSV ýükle",
   totalDays:"Jemi gün",totalHours:"Jemi sagat",edits:"Düzeltmeler",
@@ -372,7 +372,7 @@ const TK = {
   errUserExists:"Bu ulanyjy ady eýýäm bar!",
   errWrongPass:"Häzirki parol ýalňyş!",errShortPass:"Täze parol azyndan 4 harp!",
   errPassMatch:"Täze parollar gabat gelmeýär!",
-  saved:"Üstünlikli saklandy",profileUpdated:"Profil üstünlikli täzelendi",
+  saved:"Saklandy",profileUpdated:"Profil täzelendi",
   reports:"Hasabatlar",totalHoursS:"Jemi sagat",
   daysCount:"Gün hasaby",workerCount:"Işgärler",workerStats:"Işgär statistikasy",
   positionCol:"Wezipe",daysCol:"Gün",hoursCol:"Sagat",
@@ -392,13 +392,13 @@ const TK = {
   deny:"Rugsat ýok",denyMsg:"Siziň bu bölüme girişiňiz çäkli",
   cancel:"Ýatyr",create:"Döret",save:"Sakla",delete:"Poz",
   add:"Goş",edit:"Düzelt",close:"Ýap",
-  toastWorkerAdded:"Işgär üstünlikli goşuldy",toastWorkerUpdated:"Işgär maglumaty täzelendi",
-  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy üstünlikli goşuldy",
-  toastUserUpdated:"Ulanyjy maglumaty täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
-  toastSettingsSaved:"Sazlamalar üstünlikli saklandy",
+  toastWorkerAdded:"Işgär goşuldy",toastWorkerUpdated:"Işgär täzelendi",
+  toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy goşuldy",
+  toastUserUpdated:"Ulanyjy täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
+  toastSettingsSaved:"Sazlamalar saklandy",
   toastEditDone:"Gatnawy düzeldildi",toastCsvDone:"CSV ýüklenildi",
   toastOverdue:"tabşyrykda möhlet geçdi",toastOverdueSub:"Tabşyryklar bölümine baryň",
-  completedToast:"Üstünlikli tamamlandy! 🎉",taskCreated:"Tabşyryk üstünlikli döredildi",
+  completedToast:"Tamamlandy! 🎉",taskCreated:"Tabşyryk döredildi",
   lateArrival:"giç geldi",onTime:"işe geldi",leftWork:"işden çykdy",
   workSchedule:"Iş:",
   dept:"Bölüm",depts:"Bölümler",addDept:"Bölüm goş",editDept:"Bölümi üýtget",
@@ -409,8 +409,8 @@ const TK = {
   fileAttach:"Faýl goş",fileAttached:"Faýllar",noFiles:"Faýl goşulmady",
   fileUpload:"Ýüklenýär...",fileTooBig:"Faýl 10MB-dan uly bolup bilmez!",
   fileRemove:"Aýyr",fileDownload:"Ýükle",
-  afterHours:"Iş wagty daşynda",afterHoursMsg:"Iş sagady tamamlandy, ýöne giriş bellenildi",
-  beforeHours:"Iş başlamanka",beforeHoursMsg:"Iş sagady başlamanka giriş bellenildi",
+  afterHours:"Iş wagty gutaran soň geldi",afterHoursMsg:"Iş sagady tamamlanansoň giriş bellenildi",
+  beforeHours:"Iş wagtyndan öň geldi",beforeHoursMsg:"Iş sagady başlamazdan 30 min öň giriş bellenildi",
 };
 const RU = {
   appSub:"Система Управления Офисом",appSubShort:"Система Управления",
@@ -508,8 +508,8 @@ const RU = {
   fileAttach:"Прикрепить файл",fileAttached:"Файлы",noFiles:"Файлы не прикреплены",
   fileUpload:"Загрузка...",fileTooBig:"Файл не может быть больше 10МБ!",
   fileRemove:"Удалить",fileDownload:"Скачать",
-  afterHours:"Вне рабочего времени",afterHoursMsg:"Рабочее время завершено, но отмечен приход",
-  beforeHours:"До начала работы",beforeHoursMsg:"Приход отмечен до начала рабочего времени",
+  afterHours:"Пришёл после рабочего времени",afterHoursMsg:"Рабочее время закончилось, приход отмечен",
+  beforeHours:"Пришёл раньше времени",beforeHoursMsg:"Приход отмечен за 30+ мин до начала работы",
 };
 const EN = {
   appSub:"Office Management System",appSubShort:"Management System",
@@ -607,8 +607,8 @@ const EN = {
   fileAttach:"Attach File",fileAttached:"Files",noFiles:"No files attached",
   fileUpload:"Uploading...",fileTooBig:"File cannot exceed 10MB!",
   fileRemove:"Remove",fileDownload:"Download",
-  afterHours:"Outside work hours",afterHoursMsg:"Work hours ended, but check-in recorded",
-  beforeHours:"Before work hours",beforeHoursMsg:"Check-in recorded before work hours start",
+  afterHours:"Arrived after work hours",afterHoursMsg:"Work hours ended, check-in recorded",
+  beforeHours:"Arrived early",beforeHoursMsg:"Arrived 30+ min before work starts",
 };
 const LANGS = {tk:TK, ru:RU, en:EN};
 
@@ -1010,7 +1010,7 @@ function PwStrength({ pw, match, C }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: meta.c }}>{meta.l}</span>
-        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Üstünlikli saklandy","✓ Gabat gelýär")}</span>}
+        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Saklandy","✓ Gabat gelýär")}</span>}
         {!match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.rd }}>{tl.errPassMatch.slice(0,14)}</span>}
       </div>
     </div>
@@ -1418,7 +1418,7 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
     if (out && !out.match(/^\d{2}:\d{2}$/)) { setErr(tl.errExitFormat); return; }
     
     // Çykyş wagty girişden öň bolmaly däl (tMin funksiýasy kodyňyzda bar diýip hasap edýärin)
-    if (out && typeof tMin === 'function' && tMin(out) <= tMin(inn)) { 
+    if (out && typeof tMin === 'function' && tMin(out) < tMin(inn)) { 
       setErr(tl.errExitBefore); return; 
     }
 
@@ -1533,8 +1533,15 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
   ];
 
   const act = [
-    ...todA.filter((a) => a.check_out).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.check_out, ic: "🚪" }; }),
-    ...todA.filter((a) => a.check_in).map((a) => { const w = workers.find((x) => x.id === a.wid); return { t: `${w ? w.name : "?"} ${tl.cameIn}`,   time: a.check_in, ic: I.check(C.pu,22) }; }),
+    ...todA.filter((a) => a.check_out).map((a) => {
+      const w = workers.find((x) => x.id === a.wid);
+      return { t: `${w ? w.name : "?"} ${tl.leftWork}`, time: a.check_out, ic: "🚪" };
+    }),
+    ...todA.filter((a) => a.check_in).map((a) => {
+      const w = workers.find((x) => x.id === a.wid);
+      const isLate = tMin(a.check_in) > tMin(settings.workStart) + settings.lateLimit;
+      return { t: `${w ? w.name : "?"} ${isLate ? tl.lateArrival : tl.cameIn}`, time: a.check_in, ic: I.check(C.pu,22) };
+    }),
   ].sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
 
   return (
@@ -1588,7 +1595,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{myW.name}</div>
               <div style={{ fontSize: 12, color: C.txS }}>{myW.pos}</div>
               <Chip color={myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}
+                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}
               </Chip>
             </div>
           </div>
@@ -1640,7 +1647,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
                     </div>
                     <div style={{ display: "flex", gap: 5 }}>
                       {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç geldi</span></Chip>}
-                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
+                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}</Chip>
                     </div>
                   </div>
                 );
@@ -1733,33 +1740,49 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const endMin  = tMin(settings.workEnd);
     const late    = nowMin > startMin + settings.lateLimit;
     const afterWH = nowMin > endMin;
-    const beforeWH= nowMin < startMin;
+    // "Irden" diýmek: iş başlanmanka 30 min-dan köp gelen
+    const earlyMin = 30;
+    const beforeWH = nowMin < startMin - earlyMin;
     const w  = workers.find((x) => x.id === wid);
     const nm = w ? w.name : "?";
     try {
       const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
+      // ÖŇDEN state täzele — real-time gelende duplicate bolmaz
+      setAttend((p) => p.find(x => x.id === newA.id) ? p : [...p, newA]);
+      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
+      // Bildiriş
+      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} | Iş: ${settings.workStart}–${settings.workEnd}`, "info");
+      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} | Iş: ${settings.workStart}-dan başlaýar`, "info");
+      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} | Iş: ${settings.workStart}`, "info");
+      else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
+      // Soňra Supabase-e ýaz
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
-      setAttend((p) => [...p, newA]);
-      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
-      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
-      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart}–${settings.workEnd})`, "info");
-      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} (${tl.workSchedule} ${settings.workStart})`, "info");
-      else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    } catch(e) {
+      // Ýalňyşlykda state yzyna al
+      setAttend((p) => p.filter(a => a.id !== newA?.id));
+      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
+      toast("Ýalňyşlyk", e.message, "err");
+    }
   };
 
   const doOut = async (wid) => {
     const now = gNow();
+    const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.check_out);
+    const w   = workers.find((x) => x.id === wid);
+    // ÖŇDEN state täzele
+    setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
+    setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "öýde" } : wk));
+    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now} | Işlän: ${rec ? calcH(rec.check_in, now) || "—" : "—"}`, "info");
     try {
-      const rec = attend.find(a => a.wid === wid && a.date === gToday() && !a.check_out);
       if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { check_out: now });
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "öýde" });
-      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
-      setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-    const w = workers.find((x) => x.id === wid);
-    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now}`, "info");
+    } catch(e) {
+      // Ýalňyşlykda yzyna al
+      setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && a.check_out === now ? { ...a, check_out: null } : a));
+      setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "işde" } : wk));
+      toast("Ýalňyşlyk", e.message, "err");
+    }
   };
 
   const saveEdit = async (upd) => {
@@ -1805,7 +1828,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <div style={{ fontWeight: 900, fontSize: 18, color: C.tx }}>{myW ? myW.name : "Işgär"}</div>
               <div style={{ fontSize: 13, color: C.txS }}>{myW ? myW.pos : ""}</div>
               <Chip color={myW && myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ Ýok"}
+                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ Işde däl"}
               </Chip>
             </div>
           </div>
@@ -1826,7 +1849,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
             </div>
             {isDone && (
               <div style={{ textAlign:"center", background:C.sf, borderRadius:14, padding:"12px 20px", border:`1px solid ${C.pu}44`, minWidth:90 }}>
-                <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>⏱ Işlän</div>
+                <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>⏱ Işledi</div>
                 <div style={{ fontSize:24, fontWeight:900, color:C.pu }}>{calcH(rec.check_in, rec.check_out)}</div>
               </div>
             )}
@@ -1835,7 +1858,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {!rec && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <button onClick={() => doIn(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.gn},#0DBF7A)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.gn}44`, transition: "all .2s" }}>
-                Işe geldim ✅
+                Işe geldim
               </button>
               <div style={{ fontSize: 12, color: C.txM }}>{tl.checkInHint}</div>
             </div>
@@ -2607,7 +2630,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.tx }}>{w.name}</div>
                   <div style={{ fontSize: 12, color: C.txS, marginTop: 1 }}>{w.pos}{(() => { const d = depts.find(x => x.id === w.dept_id); return d ? <span style={{ marginLeft:6, fontSize:10, background:C.acG, color:C.ac, borderRadius:5, padding:"1px 6px", fontWeight:700 }}>🏢 {d.name}</span> : null; })()}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Ýok"}</Chip>
+                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}</Chip>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
@@ -2739,7 +2762,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       try {
                         await sbFetch(`depts?id=eq.${d.id}`, "DELETE");
                         setDepts(p => p.filter(x => x.id !== d.id));
-                        toast("Bölüm pozuldy", d.name, "info");
+                        toast("Bölüm pozuldy ✓", d.name, "info");
                       } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
                     }} />
                   </div>
@@ -2761,12 +2784,12 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       if (eD) {
                         await sbFetch(`depts?id=eq.${eD.id}`, "PATCH", { name: dF.name });
                         setDepts(p => p.map(x => x.id === eD.id ? { ...x, name: dF.name } : x));
-                        toast("Bölüm täzelendi", dF.name, "ok");
+                        toast("Bölüm täzelendi ✓", dF.name, "ok");
                       } else {
                         const nd = { id: "d" + Date.now(), name: dF.name };
                         await sbFetch("depts", "POST", nd);
                         setDepts(p => [...p, nd]);
-                        toast("Bölüm goşuldy", dF.name, "ok");
+                        toast("Bölüm goşuldy ✓", dF.name, "ok");
                       }
                       setDMod(false);
                     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
@@ -2888,21 +2911,40 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
 
   // Dile görä AI instruksiýasy
   const langInstr = {
-    tk: "Diňe TÜRKMEN dilinde jogap ber. Gysgaça we peýdaly.",
-    ru: "Отвечай ТОЛЬКО на РУССКОМ языке. Кратко и по делу.",
-    en: "Reply ONLY in ENGLISH. Keep it brief and helpful.",
+    tk: `DIŇE TÜRKMEN dilinde jogap ber. Grammatika düzgünleri:
+- Sözleri dogry ýaz: "işgär" (işger däl), "tabşyryk" (tabşyrık däl), "möhlet" (mohlet däl)
+- Jogap 2-3 sözlemden geçmesin
+- Anyk we düşnükli ýaz, gereksiz sözleri ulanma
+- Gerek bolsa sanlar we sanawlar ulan`,
+    ru: `Отвечай ТОЛЬКО на РУССКОМ языке.
+- Используй правильную грамматику
+- Ответ не более 2-3 предложений
+- Конкретно и по делу`,
+    en: `Reply ONLY in ENGLISH.
+- Use correct grammar
+- Maximum 2-3 sentences
+- Be specific and helpful`,
   };
 
-  const sysPrompt = `You are an AI assistant built into "Kömekçi" office management app.
-${langInstr[lang] || langInstr.tk}
-User: ${cu.name}, role: ${cu.role}
-${isI
-  ? `My tasks: ${myT.map((t) => `"${t.title}"(${t.col}${t.dl ? ", due:" + dlToTk(t.dl) : ""})`).join(", ") || "none"}`
-  : `Workers: ${workers.map((w) => `${w.name}(${w.pos},${w.status})`).join(", ")}
-At work: ${workers.filter((w) => w.status === "işde").map((w) => w.name).join(", ") || "none"}
-Tasks: Todo=${tasks.filter((t) => t.col === "Etmeli").length}, Done=${tasks.filter((t) => t.col === "Tamamlandy").length}
-Overdue: ${overdue}`}
-Answer in max 3 sentences.`;
+  const roleLabel = cu.role === "admin" ? "Admin" : cu.role === "bashlik" ? "Başlyk" : "Işgär";
+  const sysPrompt = [
+    "Sen 'Kömekçi' edara dolandyryş programmasynyň AI kömekçisisin.",
+    langInstr[lang] || langInstr.tk,
+    "",
+    "Ulanyjy: " + cu.name + " (" + roleLabel + ")",
+    isI
+      ? "Tabşyryklam (" + myT.length + " sany):\n" +
+        (myT.slice(0,5).map(t => "- " + t.title + " [" + t.col + "]" + (t.dl ? " → " + dlToTk(t.dl) : "")).join("\n") || "Tabşyryk ýok") +
+        (myT.length > 5 ? "\n... we ýene " + (myT.length - 5) + " tabşyryk" : "")
+      : "Işgärler: " + workers.length + " sany\n" +
+        "İşdäkiler: " + (workers.filter(w => w.status === "işde").map(w => w.name).join(", ") || "Ýok") + "\n" +
+        "Tabşyryklar — Etmeli:" + tasks.filter(t => t.col === "Etmeli").length +
+        " Dowam:" + tasks.filter(t => t.col === "Dowam edýär").length +
+        " Tamam:" + tasks.filter(t => t.col === "Tamamlandy").length + "\n" +
+        "Möhleti geçen: " + overdue,
+    "",
+    "Ýönekeý, düşnükli, gysgaça jogap ber.",
+  ].join("\n");
 
   // Groq API — Türkmenistanda VPN bolmasa-da işleýär, mugt
   // API açaryny almak: console.groq.com -> Create API Key
@@ -2959,7 +3001,7 @@ Answer in max 3 sentences.`;
           }),
         });
         const d2 = await r2.json();
-        setMsgs(p => [...p, { role: "assistant", content: d2.content?.[0]?.text || "Ötünç, jogap alyp bolmady." }]);
+        setMsgs(p => [...p, { role: "assistant", content: d2.content?.[0]?.text || "Bagyşlaň, jogap alyp bolmady." }]);
       }
     } catch {
       setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
@@ -3268,7 +3310,7 @@ export default function App() {
           </button>
 
           {/* Çykyş — hemişe görünýär */}
-          <button onClick={() => setCu(null)} className="kb" title={tl.logout} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
+          <button onClick={() => setCu(null)} className="kb" title={tl.exit} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
         </div>
       </header>
 
