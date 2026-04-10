@@ -2955,25 +2955,18 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     setMsgs(nm);
     setLoad(true);
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("/api/chat"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 600,
-          system: sysPromptStr,
-          messages: nm
-            .filter(m => m.role !== "system")
-            .map(m => ({ role: m.role, content: m.content })),
+          messages: msg,
         }),
       });
       if (!r.ok) throw new Error("HTTP " + r.status);
       const d = await r.json();
-      const txt2 = d.content?.[0]?.text || "Bagyşlaň, jogap alyp bolmady.";
+      const txt2 = d.reply;
       setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
     } catch(e) {
       setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
