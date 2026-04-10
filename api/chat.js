@@ -1,34 +1,36 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export default async function handler(req, res) {
+  // 1. Diňe POST soraglaryny kabul edýäris
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    // 2. API açaryňyz barmy diňe barlag
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY Vercel-de ýa-da .env-de tapylmady!");
+    }
 
-    // 1. Modeli kesgitlemek (gemini-pro ýa-da gemini-1.5-flash)
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash", // Has çalt we tygşytly wersiýasy
-    });
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    
+    // 3. Model hökmünde 'gemini-1.5-flash' ulanmak has gowudyr (çalt we mugt)
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const { message, systemPrompt } = req.body;
 
-    // 2. Gemini-da system prompt we ulanyjy hatyny birleşdirip ugratmak
-    // Gemini-niň SDK-synda system instruction aýratyn hem berlip bilner, 
-    // ýöne iň ygtybarly ýoly ulanýarys:
-    const prompt = `${systemPrompt}\n\nUlanyjy soragy: ${message}`;
+    // 4. Instruksiýa bilen ulanyjynyň hatyny birleşdirýäris
+    const fullPrompt = `${systemPrompt}\n\nUlanyjy: ${message}`;
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent(fullPrompt);
     const response = await result.response;
     const text = response.text();
 
-    // Frontend-däki "d.reply" diýen ýere şu ýerdäki "reply" barar
+    // 5. Arassa jogaby yzyna ugradýarys
     res.status(200).json({ reply: text });
 
   } catch (error) {
-    console.error("Gemini Backend Error:", error);
-    res.status(500).json({ error: "AI bilen baglanşykda säwlik ýüze çykdy." });
+    console.error("Gemini Error:", error.message);
+    res.status(500).json({ error: error.message });
   }
 }

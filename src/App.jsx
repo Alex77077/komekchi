@@ -2948,46 +2948,39 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   const sysPromptStr = sysPrompt; // string
 
  const send = async (quickMessage = null) => {
-     const messageToSend = quickMessage || inp;
-     if (!messageToSend || messageToSend.trim() === "" || load) return;
+   const messageToSend = quickMessage || inp;
+   if (!messageToSend || messageToSend.trim() === "" || load) return;
 
-     setLoad(true);
-     setMsgs(p => [...p, { role: "user", content: messageToSend }]);
-     if (!quickMessage) setInp("");
+   setLoad(true);
+   setMsgs(p => [...p, { role: "user", content: messageToSend }]);
+   if (!quickMessage) setInp("");
 
-     try {
-       // Bellik: /api/chat siziň Gemini API-syny ulanýan bekendiňiz bolmaly
-       const res = await fetch("/api/chat", {
-         method: "POST",
-         headers: {
-           "Content-Type": "application/json",
-         },
-         body: JSON.stringify({
-           message: messageToSend,
-           systemPrompt: sysPromptStr
-         }),
-       });
+   try {
+     const res = await fetch("/api/chat", {
+       method: "POST",
+       headers: { "Content-Type": "application/json" },
+       body: JSON.stringify({
+         message: messageToSend,
+         systemPrompt: sysPromptStr // Siziň ýokarda düzen instruksiýalaryňyz
+       }),
+     });
 
-       if (!res.ok) throw new Error("HTTP ýalňyşlygy: " + res.status);
+     const data = await res.json();
 
-       const d = await res.json();
-
-       // ⚠️ GEMINI ÜÇIN DÜZEDIŞ:
-       // Google Gemini adatça jogaby şu aşakdaky gurluşda berýär:
-       // d.candidates[0].content.parts[0].text
-
-       const txt2 = d.candidates?.[0]?.content?.parts?.[0]?.text
-                 || d.reply
-                 || "Jogap alynmady";
-
-       setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
-     } catch(e) {
-       console.error("Gemini API Error:", e);
-       setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
-     } finally {
-       setLoad(false);
+     if (!res.ok) {
+       throw new Error(data.error || "Serwer ýalňyşlygy");
      }
-   };
+
+     // Bekentden gelýän taýyn 'reply' ulanýarys
+     setMsgs(p => [...p, { role: "assistant", content: data.reply }]);
+
+   } catch (e) {
+     console.error("AI Error:", e);
+     setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl: " + e.message }]);
+   } finally {
+     setLoad(false);
+   }
+ };
 
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
