@@ -2947,15 +2947,9 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   ].join("\n");
   const sysPromptStr = sysPrompt; // string
 
-  const send = async (txt) => {
-    const msg = (txt || inp).trim();
-    if (!msg || load) return;
-    setInp("");
-    const nm = [...msgs, { role: "user", content: msg }];
-    setMsgs(nm);
-    setLoad(true);
+  const send = async () => {
     try {
-      const r = await fetch("/api/chat"), {
+      const r = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
