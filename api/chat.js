@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     // 'gemini-pro' käwagt Vercel-de sebit sebäpli doňup bilýär, 'gemini-1.5-flash' has durnuklydyr
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
     const { message, systemPrompt } = req.body;
 
