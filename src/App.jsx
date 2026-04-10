@@ -550,7 +550,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"Etmeli",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"to-do",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
@@ -2947,26 +2947,36 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   ].join("\n");
   const sysPromptStr = sysPrompt; // string
 
-  const send = async () => {
-    try {
-      const r = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: msg,
-        }),
-      });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const d = await r.json();
-      const txt2 = d.reply;
-      setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
-    } catch(e) {
-      setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
-    }
-    setLoad(false);
-  };
+ const sendMessage = async () => {
+   setLoad(true); // Ýüklenýändigini görkezmek üçin
+   try {
+     const res = await fetch("/api/chat", {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+       },
+       body: JSON.stringify({
+         message: input // 'input' üýtgeýjisiniň bar bolmagy şert
+       }),
+     });
+
+     if (!res.ok) throw new Error("HTTP ýalňyşlygy: " + res.status);
+ 
+     const d = await res.json(); // 'r' däl-de 'res' bolmaly
+
+     console.log(d); // 'data' däl-de 'd' bolmaly
+
+     // API-dan gelýän obýektiň içinde 'reply' meýdançasynyň bardygyny barlaň
+     const txt2 = d.reply || d.choices?.[0]?.message?.content || "Jogap alynmady";
+
+     setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
+   } catch(e) {
+     console.error("AI Error:", e); // Ýalňyşlygy konsolda görmek üçin
+     setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
+   } finally {
+     setLoad(false); // Her niçigem bolsa ýüklemäni duruzmak
+   }
+ };
 
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
