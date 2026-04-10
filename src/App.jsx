@@ -2947,36 +2947,42 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   ].join("\n");
   const sysPromptStr = sysPrompt; // string
 
- const sendMessage = async () => {
-   setLoad(true); // Ýüklenýändigini görkezmek üçin
-   try {
-     const res = await fetch("/api/chat", {
-       method: "POST",
-       headers: {
-         "Content-Type": "application/json",
-       },
-       body: JSON.stringify({
-         message: input // 'input' üýtgeýjisiniň bar bolmagy şert
-       }),
-     });
+ const send = async (quickMessage = null) => {
+     const messageToSend = quickMessage || inp; // 'input' däl, 'inp' bolmaly (state-iň ady)
+     if (!messageToSend || messageToSend.trim() === "" || load) return;
 
-     if (!res.ok) throw new Error("HTTP ýalňyşlygy: " + res.status);
- 
-     const d = await res.json(); // 'r' däl-de 'res' bolmaly
+     setLoad(true);
+     // 2. Ýalňyşlyk: Ulanyjynyň hatyny ekrana goşmak we inputy arassalamak ýatdan çykarylan.
+     setMsgs(p => [...p, { role: "user", content: messageToSend }]);
+     if (!quickMessage) setInp("");
 
-     console.log(d); // 'data' däl-de 'd' bolmaly
+     try {
+       const res = await fetch("/api/chat", {
+         method: "POST",
+         headers: {
+           "Content-Type": "application/json",
+         },
+         body: JSON.stringify({
+           message: messageToSend,
+           systemPrompt: sysPromptStr // AI-yň akylly jogap bermegi üçin sysPrompt-y ugradyň
+         }),
+       });
 
-     // API-dan gelýän obýektiň içinde 'reply' meýdançasynyň bardygyny barlaň
-     const txt2 = d.reply || d.choices?.[0]?.message?.content || "Jogap alynmady";
+       if (!res.ok) throw new Error("HTTP ýalňyşlygy: " + res.status);
 
-     setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
-   } catch(e) {
-     console.error("AI Error:", e); // Ýalňyşlygy konsolda görmek üçin
-     setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
-   } finally {
-     setLoad(false); // Her niçigem bolsa ýüklemäni duruzmak
-   }
- };
+       const d = await res.json();
+
+       // 3. Ýalňyşlyk: d.reply ýa-da d.choices gelýändigini barlaýarys
+       const txt2 = d.reply || d.choices?.[0]?.message?.content || "Jogap alynmady";
+
+       setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
+     } catch(e) {
+       console.error("AI Error:", e);
+       setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
+     } finally {
+       setLoad(false);
+     }
+   };
 
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
