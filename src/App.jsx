@@ -2946,7 +2946,6 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     "Ýönekeý, düşnükli, gysgaça jogap ber.",
   ].join("\n");
   const sysPromptStr = sysPrompt; // string
-
  const send = async (quickMessage = null) => {
    const messageToSend = quickMessage || inp;
    if (!messageToSend || messageToSend.trim() === "" || load) return;
@@ -2961,27 +2960,33 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
        headers: { "Content-Type": "application/json" },
        body: JSON.stringify({
          message: messageToSend,
-         systemPrompt: sysPromptStr // Siziň ýokarda düzen instruksiýalaryňyz
+         systemPrompt: sysPromptStr
        }),
      });
 
-     const data = await res.json();
+     // ILKI JOGABY TEKST GÖRNÜŞDE ALYŇ (Debug üçin)
+     const rawText = await res.text();
+     let data;
 
-     if (!res.ok) {
-       throw new Error(data.error || "Serwer ýalňyşlygy");
+     try {
+       data = JSON.parse(rawText);
+     } catch (e) {
+       throw new Error("Serwerden nädogry jogap geldi (JSON däl).");
      }
 
-     // Bekentden gelýän taýyn 'reply' ulanýarys
+     if (!res.ok) {
+       throw new Error(data.error || "Serwer ýalňyşlygy: " + res.status);
+     }
+
      setMsgs(p => [...p, { role: "assistant", content: data.reply }]);
 
    } catch (e) {
      console.error("AI Error:", e);
-     setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl: " + e.message }]);
+     setMsgs(p => [...p, { role: "assistant", content: "⚠️ Saklanyň: " + e.message }]);
    } finally {
      setLoad(false);
    }
  };
-
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
   return (
