@@ -2948,15 +2948,15 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   const sysPromptStr = sysPrompt; // string
 
  const send = async (quickMessage = null) => {
-     const messageToSend = quickMessage || inp; // 'input' däl, 'inp' bolmaly (state-iň ady)
+     const messageToSend = quickMessage || inp;
      if (!messageToSend || messageToSend.trim() === "" || load) return;
 
      setLoad(true);
-     // 2. Ýalňyşlyk: Ulanyjynyň hatyny ekrana goşmak we inputy arassalamak ýatdan çykarylan.
      setMsgs(p => [...p, { role: "user", content: messageToSend }]);
      if (!quickMessage) setInp("");
 
      try {
+       // Bellik: /api/chat siziň Gemini API-syny ulanýan bekendiňiz bolmaly
        const res = await fetch("/api/chat", {
          method: "POST",
          headers: {
@@ -2964,7 +2964,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
          },
          body: JSON.stringify({
            message: messageToSend,
-           systemPrompt: sysPromptStr // AI-yň akylly jogap bermegi üçin sysPrompt-y ugradyň
+           systemPrompt: sysPromptStr
          }),
        });
 
@@ -2972,12 +2972,17 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
 
        const d = await res.json();
 
-       // 3. Ýalňyşlyk: d.reply ýa-da d.choices gelýändigini barlaýarys
-       const txt2 = d.reply || d.choices?.[0]?.message?.content || "Jogap alynmady";
+       // ⚠️ GEMINI ÜÇIN DÜZEDIŞ:
+       // Google Gemini adatça jogaby şu aşakdaky gurluşda berýär:
+       // d.candidates[0].content.parts[0].text
+
+       const txt2 = d.candidates?.[0]?.content?.parts?.[0]?.text
+                 || d.reply
+                 || "Jogap alynmady";
 
        setMsgs(p => [...p, { role: "assistant", content: txt2 }]);
      } catch(e) {
-       console.error("AI Error:", e);
+       console.error("Gemini API Error:", e);
        setMsgs(p => [...p, { role: "assistant", content: "⚠️ AI häzir elýeterli däl. Biraz soňra synlaň." }]);
      } finally {
        setLoad(false);
