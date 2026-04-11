@@ -550,7 +550,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"to-do",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"Etmeli",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
@@ -2911,19 +2911,9 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
 
   // Dile görä AI instruksiýasy
   const langInstr = {
-    tk: `DIŇE TÜRKMEN dilinde jogap ber. Grammatika düzgünleri:
-- Sözleri dogry ýaz: "işgär" (işger däl), "tabşyryk" (tabşyrık däl), "möhlet" (mohlet däl)
-- Jogap 2-3 sözlemden geçmesin
-- Anyk we düşnükli ýaz, gereksiz sözleri ulanma
-- Gerek bolsa sanlar we sanawlar ulan`,
-    ru: `Отвечай ТОЛЬКО на РУССКОМ языке.
-- Используй правильную грамматику
-- Ответ не более 2-3 предложений
-- Конкретно и по делу`,
-    en: `Reply ONLY in ENGLISH.
-- Use correct grammar
-- Maximum 2-3 sentences
-- Be specific and helpful`,
+    tk: "Diňe türkmen dilinde, sada we düşnükli jogap ber. Jogap 2-3 sözlemden köp bolmasyn. Türkmen sözlerini dogry ýaz.",
+    ru: "Отвечай только на русском языке. Кратко, не более 2-3 предложений.",
+    en: "Reply only in English. Keep it brief, 2-3 sentences max.",
   };
 
   const roleLabel = cu.role === "admin" ? "Admin" : cu.role === "bashlik" ? "Başlyk" : "Işgär";
@@ -2945,48 +2935,74 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     "",
     "Ýönekeý, düşnükli, gysgaça jogap ber.",
   ].join("\n");
-  const sysPromptStr = sysPrompt; // string
- const send = async (quickMessage = null) => {
-   const messageToSend = quickMessage || inp;
-   if (!messageToSend || messageToSend.trim() === "" || load) return;
 
-   setLoad(true);
-   setMsgs(p => [...p, { role: "user", content: messageToSend }]);
-   if (!quickMessage) setInp("");
+  // ── Google Gemini AI ─────────────────────────────────────────
+  // Mugt API key: https://aistudio.google.com/app/apikey
+  // Vercel → Settings → Environment Variables → VITE_GEMINI_API_KEY
+  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+  const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
 
-   try {
-     const res = await fetch("/api/chat", {
-       method: "POST",
-       headers: { "Content-Type": "application/json" },
-       body: JSON.stringify({
-         message: messageToSend,
-         systemPrompt: sysPromptStr
-       }),
-     });
+  const send = async (txt) => {
+    const msg = (txt || inp).trim();
+    if (!msg || load) return;
+    setInp("");
+    const nm = [...msgs, { role: "user", content: msg }];
+    setMsgs(nm);
+    setLoad(true);
 
-     // ILKI JOGABY TEKST GÖRNÜŞDE ALYŇ (Debug üçin)
-     const rawText = await res.text();
-     let data;
+    if (!GEMINI_KEY) {
+      setMsgs(p => [...p, {
+        role: "assistant",
+        content: "⚙️ AI işlemek üçin Google Gemini API açary gerek:\n1. aistudio.google.com/app/apikey sahypasyna giriň\n2. API key döretiň (mugt)\n3. Vercel → Settings → Environment Variables\n4. VITE_GEMINI_API_KEY = açaryňyz",
+      }]);
+      setLoad(false);
+      return;
+    }
 
-     try {
-       data = JSON.parse(rawText);
-     } catch (e) {
-       throw new Error("Serwerden nädogry jogap geldi (JSON däl).");
-     }
+    try {
+      // Gemini rol: "user" / "model" (assistant däl)
+      const geminiMsgs = nm
+        .filter(m => m.role !== "system")
+        .map(m => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        }));
 
-     if (!res.ok) {
-       throw new Error(data.error || "Serwer ýalňyşlygy: " + res.status);
-     }
+      const body = {
+        system_instruction: { parts: [{ text: sysPrompt }] },
+        contents: geminiMsgs,
+        generationConfig: {
+          maxOutputTokens: 600,
+          temperature: 0.7,
+        },
+      };
 
-     setMsgs(p => [...p, { role: "assistant", content: data.reply }]);
+      const r = await fetch(GEMINI_URL + GEMINI_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-   } catch (e) {
-     console.error("AI Error:", e);
-     setMsgs(p => [...p, { role: "assistant", content: "⚠️ Saklanyň: " + e.message }]);
-   } finally {
-     setLoad(false);
-   }
- };
+      const d = await r.json();
+
+      if (!r.ok) {
+        const errMsg = d?.error?.message || ("HTTP " + r.status);
+        throw new Error(errMsg);
+      }
+
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("Boş jogap");
+
+      setMsgs(p => [...p, { role: "assistant", content: text }]);
+    } catch(e) {
+      setMsgs(p => [...p, {
+        role: "assistant",
+        content: "⚠️ AI jogap berip bilmedi: " + (e.message || "Näbelli ýalňyşlyk") + "\nInternetiňizi we API açaryňyzy barlaň.",
+      }]);
+    }
+    setLoad(false);
+  };
+
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
   return (
