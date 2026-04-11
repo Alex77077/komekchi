@@ -550,7 +550,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"Etmeli",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"To Do",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
@@ -741,7 +741,7 @@ const RL = {
 };
 
 // Başlangyç sazlamalar
-const DEF_SETTINGS = { workStart: "08:00", workEnd: "18:00", lateLimit: 15 };
+const DEF_SETTINGS = { workStart: "08:00", workEnd: "18:00", lateLimit: 15, taskArchiveDays: 3 };
 
 // Başlangyç ulanyjy — diňe admin
 const INIT_USERS = [{ id: "u1", username: "admin", password: "admin123", role: "admin", name: "Admin", wid: null }];
@@ -2375,9 +2375,14 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
         )}
       </div>
       {task.desc && <div style={{ fontSize: 11, color: C.txS, marginBottom: 7, lineHeight: 1.5 }}>{task.desc.slice(0, 60)}{task.desc.length > 60 ? "..." : ""}</div>}
-      {task.dl && (
-        <div style={{ fontSize: 11, color: isOv ? C.rd : isDu ? C.yw : C.txS, marginBottom: 7, fontWeight: isOv || isDu ? 700 : 400 }}>
+      {task.dl && task.col !== "Tamamlandy" && (
+        <div style={{ fontSize: 11, color: isOv ? C.rd : isDu ? C.yw : C.txS, marginBottom: 5, fontWeight: isOv || isDu ? 700 : 400 }}>
           {isOv ? tl.overdueTask : isDu ? tl.dueTodayTask : "📅 " + dlToTk(task.dl)}
+        </div>
+      )}
+      {task.col === "Tamamlandy" && task.completed_at && (
+        <div style={{ fontSize: 10, color: C.txM, marginBottom: 5 }}>
+          ✓ {dDiff(gToday(), task.completed_at) === 0 ? "Şu gün" : dDiff(gToday(), task.completed_at) + " gün öň"} tamamlandy
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2441,10 +2446,16 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
 
   const moveTask = async (id, col) => {
     try {
-      await sbFetch(`tasks?id=eq.${id}`, "PATCH", { col });
-      setTasks((p) => p.map((t) => t.id === id ? { ...t, col } : t));
-      const t = tasks.find((x) => x.id === id);
-      if (col === "Tamamlandy") toast(tl.completedToast, t ? t.title : "", "ok");
+      const patch = { col };
+      if (col === "Tamamlandy") patch.completed_at = gToday();
+      await sbFetch(`tasks?id=eq.${id}`, "PATCH", patch);
+      setTasks(p => p.map(t => t.id === id ? { ...t, ...patch } : t));
+      const t = tasks.find(x => x.id === id);
+      if (col === "Tamamlandy") {
+        const days = settings?.taskArchiveDays ?? 3;
+        const sub = days > 0 ? `${days} günden soň awtomatik pozular` : "";
+        toast(tl.completedToast, (t ? t.title + (sub ? " — " : "") : "") + sub, "ok");
+      }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
 
@@ -2946,9 +2957,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     "Ýönekeý, düşnükli, gysgaça jogap ber.",
   ].join("\n");
 
-  // ── Google Gemini AI ─────────────────────────────────────────
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-
+  // ── AI Kömekçi — /api/ai Vercel proxy arkaly ─────────────
   const send = async (txt) => {
     const msg = (txt || inp).trim();
     if (!msg || load) return;
@@ -2957,94 +2966,43 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     setMsgs(nm);
     setLoad(true);
 
-    // API key ýok bolsa — ulanyjy görkezme ber
-    if (!GEMINI_KEY) {
-      setMsgs(p => [...p, {
-        role: "assistant",
-        content: "⚙️ Gemini API açary tapylmady.\n\nVercel → Settings → Environment Variables:\nVITE_GEMINI_API_KEY = açaryňyz\n\nAçar almak: aistudio.google.com/app/apikey",
-      }]);
-      setLoad(false);
-      return;
-    }
-
     try {
-      // Gemini 1.5 Flash — iň durnukly mugt model
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
-
-      // Gemini taryhyny user/model formatynda düz
-      const history = nm
+      // Gemini formatynda taryhy düz (user / model)
+      const geminiMsgs = nm
         .filter(m => m.role !== "system")
-        .slice(0, -1) // soňky user soragy aýyr
         .map(m => ({
           role: m.role === "assistant" ? "model" : "user",
           parts: [{ text: m.content }],
         }));
 
-      const lastMsg = nm[nm.length - 1].content;
-
-      const body = {
-        system_instruction: {
-          parts: [{ text: sysPrompt }],
-        },
-        contents: [
-          ...history,
-          { role: "user", parts: [{ text: lastMsg }] },
-        ],
-        generationConfig: {
-          maxOutputTokens: 512,
-          temperature: 0.7,
-          topP: 0.95,
-        },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        ],
-      };
-
-      const r = await fetch(url, {
+      // /api/ai — Vercel serverless function (API key serwerda)
+      const r = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          system: sysPrompt,
+          messages: geminiMsgs,
+        }),
       });
 
-      // Jogaby ilki tekst görnüşde al — JSON bolup bilmez
-      const rawText = await r.text();
+      const d = await r.json();
 
-      // JSON parse et
-      let d;
-      try {
-        d = JSON.parse(rawText);
-      } catch {
-        // JSON däl jogap — API key ýalňyş ýa-da başga ýalňyşlyk
-        const preview = rawText.slice(0, 120);
-        throw new Error("Gemini JSON däl jogap berdi: " + preview);
+      if (!r.ok || d.error) {
+        throw new Error(d.error || "HTTP " + r.status);
       }
 
-      // HTTP ýalňyşlyk
-      if (!r.ok) {
-        const errMsg = d?.error?.message || ("HTTP " + r.status);
-        throw new Error(errMsg);
-      }
-
-      // Jogaby çykar
-      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) {
-        const reason = d?.candidates?.[0]?.finishReason || "näbelli";
-        throw new Error("Boş jogap. Sebäp: " + reason);
-      }
-
-      setMsgs(p => [...p, { role: "assistant", content: text }]);
+      setMsgs(p => [...p, { role: "assistant", content: d.text }]);
 
     } catch(e) {
+      const errTxt = e.message || "Näbelli ýalňyşlyk";
       setMsgs(p => [...p, {
         role: "assistant",
-        content: "⚠️ AI ýalňyşlygy: " + (e.message || "Näbelli") + "\n\nAPI açaryňyzy Vercel Environment Variables-da barlaň.",
+        content: "⚠️ AI ýalňyşlygy: " + errTxt + "\n\nVercel → Settings → Environment Variables → GEMINI_API_KEY barlaň.",
       }]);
     }
     setLoad(false);
   };
+
 
   useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
@@ -3185,7 +3143,7 @@ export default function App() {
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
-          setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit });
+          setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit, taskArchiveDays: s[0].task_archive_days ?? 3 });
         }
       } catch(e) {
         toast("Supabase ýalňyşlygy", e.message, "err");
@@ -3243,6 +3201,29 @@ export default function App() {
     const t = setInterval(() => setTime(gNow()), 15000);
     return () => clearInterval(t);
   }, []);
+
+
+  // Tamamlanan tabşyryklary awtomatik poz (diňe admin)
+  useEffect(() => {
+    if (!cu || cu.role !== "admin") return;
+    const days = settings?.taskArchiveDays ?? 3;
+    if (!days || days <= 0) return;
+    const expired = tasks.filter(t =>
+      t.col === "Tamamlandy" &&
+      t.completed_at &&
+      dDiff(gToday(), t.completed_at) >= days
+    );
+    if (expired.length === 0) return;
+    expired.forEach(async t => {
+      try {
+        await sbFetch(`tasks?id=eq.${t.id}`, "DELETE");
+        setTasks(p => p.filter(x => x.id !== t.id));
+      } catch {}
+    });
+    if (expired.length > 0) {
+      toast(`${expired.length} tamamlanan tabşyryk awtomatik pozuldy`, "", "info");
+    }
+  }, [tasks.length, settings?.taskArchiveDays, cu?.role]);
 
   // Möhlet geçen tabşyryklary barlaýar
   useEffect(() => {
