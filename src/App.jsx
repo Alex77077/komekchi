@@ -550,7 +550,7 @@ const EN = {
   worker:"Employee",priority:"Priority",column:"Column",
   deadline:"Deadline",color:"Color",
   high:"High",medium:"Medium",low:"Low",
-  col1:"To Do",col2:"In Progress",col3:"Review",col4:"Done",
+  col1:"To-Do",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
   overdueTask:"Overdue!",dueTodayTask:"Due today",
   noTasksCol:"No tasks",onlyMyTasks:"Showing only your assigned tasks",
