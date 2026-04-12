@@ -2975,7 +2975,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     if (!GEMINI_KEY) {
       setMsgs(p => [...p, {
         role: "assistant",
-        content: "🔑 API açary tapylmady!
+        content: "API açary tapylmady!
 
 1. aistudio.google.com/app/apikey → açar dörediň
 2. Vercel → Settings → Environment Variables
