@@ -2964,12 +2964,28 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   const GEMINI_KEY = import.meta.env.GEMINI_KEY || "";
 
   const send = async (txt) => {
-    const msg = (content || inp).trim();
+    const msg = (txt || inp).trim();
     if (!msg || load) return;
     setInp("");
     const nm = [...msgs, { role: "user", content: msg }];
     setMsgs(nm);
     setLoad(true);
+
+    // API key ýok
+    if (!GEMINI_KEY) {
+      setMsgs(p => [...p, {
+        role: "assistant",
+        content: "🔑 API açary tapylmady!
+
+1. aistudio.google.com/app/apikey → açar dörediň
+2. Vercel → Settings → Environment Variables
+3. At: GEMINI_KEY
+4. Baha: açaryňyz
+5. Redeploy ediň",
+      }]);
+      setLoad(false);
+      return;
+    }
 
     try {
       // Gemini 1.5 Flash — mugt, durnukly, CORS goldaýar
@@ -2988,10 +3004,10 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
         });
       }
       // Soňky ulanyjy soragy
-      history.push({ role: "user", parts: [{ content: msg }] });
+      history.push({ role: "user", parts: [{ text: msg }] });
 
       const body = {
-        system_instruction: { parts: [{ content: sysPrompt }] },
+        system_instruction: { parts: [{ text: sysPrompt }] },
         contents: history,
         generationConfig: { maxOutputTokens: 600, temperature: 0.7 },
         safetySettings: [
@@ -3009,7 +3025,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
       });
 
       // Ilki tekst görnüşde al (JSON däl ýalňyşlyk üçin gorag)
-      const raw = await resp.content();
+      const raw = await resp.text();
       let data;
       try { data = JSON.parse(raw); }
       catch { throw new Error("JSON däl jogap: " + raw.slice(0, 100)); }
@@ -3018,7 +3034,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
         throw new Error(data?.error?.message || "HTTP " + resp.status);
       }
 
-      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.content;
+      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!answer) {
         const why = data?.candidates?.[0]?.finishReason;
         throw new Error("Boş jogap" + (why ? ": " + why : ""));
