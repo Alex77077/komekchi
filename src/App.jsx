@@ -2971,14 +2971,6 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     setMsgs(nm);
     setLoad(true);
 
-    // API key ýok
-    if (!GEMINI_KEY) {
-      setMsgs(p => [...p, {
-        role: "assistant",
-      setLoad(false);
-      return;
-    }
-
     try {
       // Gemini 1.5 Flash — mugt, durnukly, CORS goldaýar
       const url =
