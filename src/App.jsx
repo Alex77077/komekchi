@@ -2972,7 +2972,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   // ─── Groq AI ─────────────────────────────────────────────────
   // Key .env-de: VITE_GROQ_KEY=gsk_...  (.gitignore-da goralýar)
   // Vercel: Settings → Environment Variables → VITE_GROQ_KEY
-  const GROQ_KEY = import.meta.env.VITE_GROQ_KEY || "";
+  const GROQ_KEY =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;
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
