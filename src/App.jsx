@@ -741,7 +741,7 @@ const RL = {
 };
 
 // Başlangyç sazlamalar
-const DEF_SETTINGS = { workStart: "08:00", workEnd: "18:00", lateLimit: 15, taskArchiveDays: 3 };
+const DEF_SETTINGS = { workStart: "08:00", workEnd: "18:00", lateLimit: 15, taskArchiveDays: 7 };
 
 // Başlangyç ulanyjy — diňe admin
 const INIT_USERS = [{ id: "u1", username: "admin", password: "admin123", role: "admin", name: "Admin", wid: null }];
@@ -1381,13 +1381,25 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
               {tl.lateLimitHint}
             </div>
           </div>
+          <div>
+            <Lbl t="Tamamlanan tabşyryklary sakla (gün)" C={C} />
+            <input
+              type="number" min="0" max="365" value={f.taskArchiveDays ?? 7}
+              onChange={(e) => setF(x => ({ ...x, taskArchiveDays: +e.target.value }))}
+              style={{ width:"100%", padding:"9px 12px", borderRadius:11,
+                background:C.bg, border:`1.5px solid ${C.pu}44`, color:C.tx, fontSize:14, fontFamily:"inherit" }}
+            />
+            <div style={{ fontSize:11, color:C.txM, marginTop:4 }}>
+              0 = hiç wagt pozulmaz. Tamamlanandan soň şu günden hasaplanar.
+            </div>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn ch={tl.cancel} v="gh" onClick={onClose} sx={{ color: C.txS, border: `1px solid ${C.bd}` }} />
           <Btn ch=<span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> onClick={async () => {
   try {
     await sbFetch("settings?id=eq.1", "PATCH", {
-      work_start: f.workStart, work_end: f.workEnd, late_limit: f.lateLimit
+      work_start: f.workStart, work_end: f.workEnd, late_limit: f.lateLimit, task_archive_days: f.taskArchiveDays ?? 7
     });
     setSettings(f);
     toast(tl.toastSettingsSaved, `${tl.workSchedule} ${f.workStart}–${f.workEnd}`, "ok");
@@ -2452,9 +2464,9 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
       setTasks(p => p.map(t => t.id === id ? { ...t, ...patch } : t));
       const t = tasks.find(x => x.id === id);
       if (col === "Tamamlandy") {
-        const days = settings?.taskArchiveDays ?? 3;
-        const sub = days > 0 ? `${days} günden soň pozular` : "";
-        toast(tl.completedToast, (t ? t.title : "") + (sub ? " — " + sub : ""), "ok");
+        const days = settings?.taskArchiveDays ?? 7;
+        toast(tl.completedToast, t ? t.title : "", "ok");
+        if (days > 0) toast("📦 Arhiw", `${days} günden soň awtomatik pozular`, "info");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
   };
@@ -2957,100 +2969,58 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     "Ýönekeý, düşnükli, gysgaça jogap ber.",
   ].join("\n");
 
-  // ─── Google Gemini AI (göni brauzerden) ─────────────────────
-  // API key: aistudio.google.com/app/apikey (mugt)
-  // Vercel → Settings → Environment Variables:
-  //   GEMINI_KEY = siz_alyp_goyan_acar
-  const GEMINI_KEY = import.meta.env.GEMINI_KEY || "";
+  // ─── Groq AI ─────────────────────────────────────────────────
+  // Key .env-de: VITE_GROQ_KEY=gsk_...  (.gitignore-da goralýar)
+  // Vercel: Settings → Environment Variables → VITE_GROQ_KEY
+  const GROQ_KEY = import.meta.env.VITE_GROQ_KEY || "";
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
     if (!msg || load) return;
     setInp("");
-    const nm = [...msgs, { role: "user", content: msg }];
-    setMsgs(nm);
+    const history = [...msgs, { role: "user", content: msg }];
+    setMsgs(history);
     setLoad(true);
 
-    // API key ýok
-    if (!GEMINI_KEY) {
-      setMsgs(p => [...p, {
-        role: "assistant",
-        content: "🔑 API açary tapylmady!
-
-1. aistudio.google.com/app/apikey → açar dörediň
-2. Vercel → Settings → Environment Variables
-3. At: GEMINI_KEY
-4. Baha: açaryňyz
-5. Redeploy ediň",
-      }]);
-      setLoad(false);
-      return;
-    }
-
     try {
-      // Gemini 1.5 Flash — mugt, durnukly, CORS goldaýar
-      const url =
-        "https://generativelanguage.googleapis.com/v1/models/" +
-        "gemini-1.5-flash:generateContent?key=" + GEMINI_KEY;
-
-      // Geçmiş taryhyny Gemini formatyna geçir (user / model)
-      const history = [];
-      for (let i = 0; i < nm.length - 1; i++) {
-        const m = nm[i];
-        if (m.role === "system") continue;
-        history.push({
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: m.content }],
-        });
-      }
-      // Soňky ulanyjy soragy
-      history.push({ role: "user", parts: [{ text: msg }] });
-
-      const body = {
-        system_instruction: { parts: [{ text: sysPrompt }] },
-        contents: history,
-        generationConfig: { maxOutputTokens: 600, temperature: 0.7 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        ],
-      };
-
-      const resp = await fetch(url, {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + GROQ_KEY,
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 600,
+          temperature: 0.7,
+          messages: [
+            { role: "system", content: sysPrompt },
+            ...history
+              .filter(m => m.role !== "system")
+              .map(m => ({ role: m.role, content: m.content })),
+          ],
+        }),
       });
 
-      // Ilki tekst görnüşde al (JSON däl ýalňyşlyk üçin gorag)
-      const raw = await resp.text();
-      let data;
-      try { data = JSON.parse(raw); }
-      catch { throw new Error("JSON däl jogap: " + raw.slice(0, 100)); }
+      const d = await r.json();
 
-      if (!resp.ok) {
-        throw new Error(data?.error?.message || "HTTP " + resp.status);
+      if (!r.ok) {
+        throw new Error(d?.error?.message || "HTTP " + r.status);
       }
 
-      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!answer) {
-        const why = data?.candidates?.[0]?.finishReason;
-        throw new Error("Boş jogap" + (why ? ": " + why : ""));
-      }
+      const answer = d?.choices?.[0]?.message?.content;
+      if (!answer) throw new Error("Boş jogap");
 
       setMsgs(p => [...p, { role: "assistant", content: answer }]);
 
     } catch (e) {
       setMsgs(p => [...p, {
         role: "assistant",
-        content: "⚠️ Ýalňyşlyk: " + (e.message || "näbelli") +
-          "
-
-API açaryňyzy Vercel-de GEMINI_KEY ady bilen barlaň.",
+        content: "⚠️ AI ýalňyşlygy: " + (e.message || "näbelli") +
+          "\n\nVercel → Settings → Environment Variables → VITE_GROQ_KEY barlaň.",
       }]);
     }
+
     setLoad(false);
   };
 
@@ -3193,7 +3163,7 @@ export default function App() {
         setUsers(u || []);
         setDepts(d || []);
         if (s && s[0]) {
-          setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit, taskArchiveDays: s[0].task_archive_days ?? 3 });
+          setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit, taskArchiveDays: s[0].task_archive_days ?? 7 });
         }
       } catch(e) {
         toast("Supabase ýalňyşlygy", e.message, "err");
@@ -3253,10 +3223,10 @@ export default function App() {
   }, []);
 
 
-  // Tamamlanan tabşyryklary awtomatik poz
+  // Tamamlanan tabşyryklary awtomatik poz (diňe admin, her renderda)
   useEffect(() => {
     if (!cu || cu.role !== "admin") return;
-    const days = settings?.taskArchiveDays ?? 3;
+    const days = settings?.taskArchiveDays ?? 7;
     if (!days || days <= 0) return;
     const expired = tasks.filter(t =>
       t.col === "Tamamlandy" && t.completed_at &&
@@ -3264,9 +3234,12 @@ export default function App() {
     );
     if (!expired.length) return;
     expired.forEach(async t => {
-      try { await sbFetch(`tasks?id=eq.${t.id}`, "DELETE"); setTasks(p => p.filter(x => x.id !== t.id)); } catch {}
+      try {
+        await sbFetch(`tasks?id=eq.${t.id}`, "DELETE");
+        setTasks(p => p.filter(x => x.id !== t.id));
+      } catch {}
     });
-    toast(`${expired.length} tamamlanan tabşyryk awtomatik pozuldy`, "", "info");
+    toast(`${expired.length} tamamlanan tabşyryk arhiwden pozuldy`, "", "info");
   }, [tasks.length, settings?.taskArchiveDays, cu?.role]);
 
   // Möhlet geçen tabşyryklary barlaýar
