@@ -60,6 +60,37 @@ function getFileUrl(path) {
   return `${SB_STORAGE}/object/public/task-files/${path}`;
 }
 
+// İşgär profil suraty ýüklemek
+async function uploadWorkerAvatar(file, workerId) {
+  const ext  = file.name.split(".").pop();
+  const path = `avatars/${workerId}_${Date.now()}.${ext}`;
+  const res  = await fetch(`${SB_STORAGE}/object/worker-avatars/${path}`, {
+    method: "POST",
+    headers: {
+      "apikey":        SB_KEY,
+      "Authorization": "Bearer " + SB_KEY,
+      "Content-Type":  file.type || "image/jpeg",
+    },
+    body: file,
+  });
+  // Bucket ýok bolsa, task-files bucket-a ýükle
+  if (!res.ok) {
+    const path2 = `avatars/${workerId}_${Date.now()}.${ext}`;
+    const res2 = await fetch(`${SB_STORAGE}/object/task-files/${path2}`, {
+      method: "POST",
+      headers: {
+        "apikey":        SB_KEY,
+        "Authorization": "Bearer " + SB_KEY,
+        "Content-Type":  file.type || "image/jpeg",
+      },
+      body: file,
+    });
+    if (!res2.ok) throw new Error("Avatar ýüklenip bilinmedi");
+    return `${SB_STORAGE}/object/public/task-files/${path2}`;
+  }
+  return `${SB_STORAGE}/object/public/worker-avatars/${path}`;
+}
+
 function fileIcon(ext) {
   const e = (ext||"").toLowerCase();
   if (["doc","docx"].includes(e)) return "📄";
@@ -807,14 +838,20 @@ function useToast() {
 
 const Av = ({ a = "?", i = 0, z = 38 }) => {
   const bg = AVC[i % AVC.length];
+  const isUrl = typeof a === "string" && (a.startsWith("http") || a.startsWith("data:"));
   return (
     <div style={{
       width: z, height: z, borderRadius: z * 0.28, flexShrink: 0,
-      background: `linear-gradient(135deg,${bg},${bg}99)`,
+      background: isUrl ? "transparent" : `linear-gradient(135deg,${bg},${bg}99)`,
       display: "flex", alignItems: "center", justifyContent: "center",
       fontSize: z * 0.3, fontWeight: 800, color: "#fff",
       boxShadow: `0 3px 10px ${bg}44`,
-    }}>{a}</div>
+      overflow: "hidden",
+    }}>
+      {isUrl
+        ? <img src={a} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.target.style.display="none"; }} />
+        : a}
+    </div>
   );
 };
 
@@ -954,7 +991,89 @@ const Deny = ({ C, tl }) => (
   </div>
 );
 
-// ─── Toast bildirişler ────────────────────────────────────────
+// ─── Markdown renderer (AI üçin) ─────────────────────────────
+function MdText({ text, C }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const elements = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // Bullet list
+    if (/^[-*•]\s/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*•]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*•]\s/, ""));
+        i++;
+      }
+      elements.push(
+        <ul key={i} style={{ paddingLeft: 18, margin: "6px 0", display: "flex", flexDirection: "column", gap: 3 }}>
+          {items.map((it, j) => (
+            <li key={j} style={{ color: C.tx, fontSize: 13, lineHeight: 1.55 }}>
+              <InlineMd text={it} C={C} />
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+    // Numbered list
+    if (/^\d+\.\s/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s/, ""));
+        i++;
+      }
+      elements.push(
+        <ol key={i} style={{ paddingLeft: 20, margin: "6px 0", display: "flex", flexDirection: "column", gap: 3 }}>
+          {items.map((it, j) => (
+            <li key={j} style={{ color: C.tx, fontSize: 13, lineHeight: 1.55 }}>
+              <InlineMd text={it} C={C} />
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+    // Empty line
+    if (!line.trim()) {
+      elements.push(<div key={i} style={{ height: 6 }} />);
+      i++;
+      continue;
+    }
+    // Normal paragraph
+    elements.push(
+      <p key={i} style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: C.tx }}>
+        <InlineMd text={line} C={C} />
+      </p>
+    );
+    i++;
+  }
+  return <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{elements}</div>;
+}
+
+function InlineMd({ text, C }) {
+  // Bold: **text**
+  // Italic: *text* or _text_
+  // Code: `code`
+  const parts = [];
+  let remaining = text;
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_|`(.+?)`)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={last}>{text.slice(last, m.index)}</span>);
+    if (m[0].startsWith("**"))
+      parts.push(<strong key={m.index} style={{ fontWeight: 800 }}>{m[2]}</strong>);
+    else if (m[0].startsWith("`"))
+      parts.push(<code key={m.index} style={{ background: C.bd, borderRadius: 4, padding: "1px 5px", fontSize: 12, fontFamily: "monospace" }}>{m[5]}</code>);
+    else
+      parts.push(<em key={m.index} style={{ fontStyle: "italic" }}>{m[3] || m[4]}</em>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(<span key={last}>{text.slice(last)}</span>);
+  return parts.length ? <>{parts}</> : <>{text}</>;
+}
 function Toast({ ts, rm, C }) {
   return (
     <div style={{
@@ -2565,13 +2684,33 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
   const [wF,   setWF]   = useState({ name: "", pos: "", av: "", dept_id: "" });
   const [uF,   setUF]   = useState({ username: "", password: "", role: "ishgar", name: "", wid: "" });
   const [dF,   setDF]   = useState({ name: "" });
+  const [avFile, setAvFile] = useState(null);
+  const [avPrev, setAvPrev] = useState(null);
+  const [avLoading, setAvLoading] = useState(false);
 
-  const openW = (w = null) => { setEW(w); setWF(w ? { name: w.name, pos: w.pos, av: w.av, dept_id: w.dept_id || "" } : { name: "", pos: "", av: "", dept_id: "" }); setWMod(true); };
+  const openW = (w = null) => {
+    setEW(w);
+    setWF(w ? { name: w.name, pos: w.pos, av: w.av, dept_id: w.dept_id || "" } : { name: "", pos: "", av: "", dept_id: "" });
+    setAvFile(null);
+    setAvPrev(w?.av?.startsWith("http") ? w.av : null);
+    setWMod(true);
+  };
   const saveW = async () => {
     if (!wF.name.trim()) return;
-    const ini = wF.av || wF.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-    const deptId = wF.dept_id || null;
+    setAvLoading(true);
     try {
+      let avatarVal = wF.av;
+      // Surat ýükle
+      if (avFile) {
+        const wid = eW ? eW.id : "w" + Date.now();
+        try {
+          avatarVal = await uploadWorkerAvatar(avFile, wid);
+        } catch {
+          avatarVal = wF.av || wF.name.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase();
+        }
+      }
+      const ini = avatarVal?.startsWith("http") ? avatarVal : (wF.av || wF.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase());
+      const deptId = wF.dept_id || null;
       if (eW) {
         await sbFetch(`workers?id=eq.${eW.id}`, "PATCH", { name: wF.name, pos: wF.pos, av: ini, dept_id: deptId });
         setWorkers((p) => p.map((w) => w.id === eW.id ? { ...w, name: wF.name, pos: wF.pos, av: ini, dept_id: deptId } : w));
@@ -2583,6 +2722,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
         toast(tl.toastWorkerAdded, wF.name, "ok");
       }
     } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    setAvLoading(false);
     setWMod(false);
   };
 
@@ -2668,9 +2808,36 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
             <Pop C={C} onClose={() => setWMod(false)}>
               <h3 style={{ fontSize: 17, fontWeight: 900, color: C.tx, marginBottom: 18 }}>{eW ? `✏️ ${tl.editWorker}` : `➕ ${tl.newWorker}`}</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+                {/* Profil suraty */}
+                <div>
+                  <Lbl t="Profil suraty" C={C} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 56, height: 56, borderRadius: 16, overflow: "hidden", background: C.bd, flexShrink: 0, border: `1.5px solid ${C.bd}` }}>
+                      {avPrev
+                        ? <img src={avPrev} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: C.txM }}>👤</div>
+                      }
+                    </div>
+                    <label style={{ cursor: "pointer", padding: "7px 14px", borderRadius: 10, border: `1px solid ${C.bd}`, background: C.sf, color: C.tx, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                      📷 Surat saýla
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (f) {
+                          setAvFile(f);
+                          const reader = new FileReader();
+                          reader.onload = (ev) => setAvPrev(ev.target.result);
+                          reader.readAsDataURL(f);
+                        }
+                      }} />
+                    </label>
+                    {avPrev && (
+                      <button onClick={() => { setAvFile(null); setAvPrev(null); }} style={{ padding: "7px 12px", borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, color: C.rd, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✕</button>
+                    )}
+                  </div>
+                </div>
                 <div><Lbl t={tl.fullName} C={C} /><Inp C={C} value={wF.name} onChange={(e) => setWF((f) => ({ ...f, name: e.target.value }))} placeholder="Oraz Ataýew" /></div>
                 <div><Lbl t={tl.position} C={C} /><Inp C={C} value={wF.pos} onChange={(e) => setWF((f) => ({ ...f, pos: e.target.value }))} placeholder="Programmist" /></div>
-                <div><Lbl t={tl.initials} C={C} /><Inp C={C} value={wF.av} onChange={(e) => setWF((f) => ({ ...f, av: e.target.value }))} placeholder="MA" maxLength={2} /></div>
+                {!avPrev && <div><Lbl t={tl.initials} C={C} /><Inp C={C} value={wF.av} onChange={(e) => setWF((f) => ({ ...f, av: e.target.value }))} placeholder="MA" maxLength={2} /></div>}
                 <div>
                   <Lbl t={tl.dept} C={C} />
                   <Sel C={C} value={wF.dept_id || ""} onChange={(e) => setWF((f) => ({ ...f, dept_id: e.target.value }))} kids={[
@@ -2680,7 +2847,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                 </div>
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <Btn ch={tl.cancel} v="gh" onClick={() => setWMod(false)} sx={{ color: C.txS }} />
-                  <Btn ch={eW ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={saveW} />
+                  <Btn ch={avLoading ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.spinner("white",13)} Ýüklenýär...</span> : eW ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={saveW} disabled={avLoading} />
                 </div>
               </div>
             </Pop>
@@ -2852,9 +3019,58 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
     { l: tl.workers,    v: workers.length,                                ic: I.workers(C.gn,22), c: C.yw },
   ];
 
+  // PDF export
+  const exportPDF = () => {
+    const date = new Date().toLocaleDateString("tk-TM");
+    const rows = ws.map(w => {
+      const eff = w.tasks > 0 ? Math.round(w.done/w.tasks*100) : 0;
+      return `<tr>
+        <td>${w.name}</td><td>${w.pos||"—"}</td>
+        <td>${w.days}</td><td>${w.hours}s</td>
+        <td>${w.late}</td><td>${w.tasks}</td><td>${w.done}</td><td>${eff}%</td>
+      </tr>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>Hasabat — ${date}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:28px;color:#1a2540;font-size:13px}
+      h1{font-size:22px;margin-bottom:4px;color:#4B6EF5}
+      .sub{color:#888;font-size:12px;margin-bottom:22px}
+      .stats{display:flex;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+      .stat{background:#f5f7ff;border:1px solid #dde3f0;border-radius:10px;padding:14px 20px;min-width:120px;text-align:center}
+      .stat .v{font-size:26px;font-weight:900;color:#4B6EF5}
+      .stat .l{font-size:11px;color:#888;margin-top:4px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{background:#4B6EF5;color:#fff;padding:9px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+      td{padding:9px 10px;border-bottom:1px solid #eee}
+      tr:nth-child(even) td{background:#f9f9ff}
+      @media print{body{padding:10px}}
+    </style></head><body>
+    <h1>📊 Komekchi — Hasabat</h1>
+    <div class="sub">Döredilen: ${date}</div>
+    <div class="stats">
+      <div class="stat"><div class="v">${workers.length}</div><div class="l">${tl.workers}</div></div>
+      <div class="stat"><div class="v">${(totMin/60).toFixed(1)}s</div><div class="l">${tl.totalHours}</div></div>
+      <div class="stat"><div class="v">${attend.filter(a=>a.check_out).length}</div><div class="l">${tl.daysCount}</div></div>
+      <div class="stat"><div class="v">${tasks.filter(t=>t.col==="Tamamlandy").length}</div><div class="l">${tl.done}</div></div>
+    </div>
+    <table><thead><tr>
+      <th>${tl.workerCol}</th><th>${tl.positionCol}</th><th>${tl.daysCol}</th>
+      <th>${tl.hoursCol}</th><th>${tl.lateCol}</th><th>${tl.tasksCol}</th>
+      <th>${tl.readyCol}</th><th>${tl.effCol}</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),1000)}<\/script>
+    </body></html>`;
+    const w2 = window.open("", "_blank");
+    if (w2) { w2.document.write(html); w2.document.close(); }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "kUp .35s" }}>
-      <STit icon={I.chart(C.txS,17)} t={tl.reports} C={C} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <STit icon={I.chart(C.txS,17)} t={tl.reports} C={C} mb={0} />
+        <Btn ch={<span style={{display:"flex",alignItems:"center",gap:6}}>{I.download(C.ac,14)} PDF</span>} v="ot" sz="s" onClick={exportPDF} />
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${mob ? 2 : 4},1fr)`, gap: 12 }}>
         {top.map((s) => (
           <div key={s.l} className="kc" style={{ background: C.cd, border: `1px solid ${C.bd}`, borderTop: `3px solid ${s.c}`, borderRadius: 17, padding: 18, textAlign: "center", transition: "all .2s" }}>
@@ -2920,59 +3136,79 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   const isI = cu.role === "ishgar";
   const myT = isI ? tasks.filter((t) => t.who === cu.wid) : tasks;
+  const chatKey = "k_ai_" + cu.id;
 
-  const [msgs, setMsgs] = useState([{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Men Kömekçiniň AI kömekçisi. Size nähili kömek edip bilerin? ✨` }]);
+  const [msgs, setMsgsRaw] = useState(() => {
+    const saved = LS.get(chatKey, null);
+    if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+    return [{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Men Kömekçiniň AI kömekçisi. Size nähili kömek edip bilerin? ✨` }];
+  });
   const [inp,  setInp]  = useState("");
   const [load, setLoad] = useState(false);
   const endRef = useRef(null);
+
+  const setMsgs = (updater) => {
+    setMsgsRaw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const trimmed = next.slice(-40);
+      LS.set(chatKey, trimmed);
+      return trimmed;
+    });
+  };
+
+  const clearChat = () => {
+    const fresh = [{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Söhbet täzelendi. Nähili kömek edip bilerin? ✨` }];
+    setMsgsRaw(fresh);
+    LS.set(chatKey, fresh);
+  };
 
   const QK = isI
     ? [tl.aiQMyTasks, tl.aiQToday, tl.aiQAdvice]
     : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
 
-  const overdue = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
+  const today = gToday();
+  const overdueTasks = tasks.filter(t => t.dl && dDiff(dlToTk(t.dl), today) < 0 && t.col !== "Tamamlandy");
+  const dueTodayCount = tasks.filter(t => t.dl && dlToTk(t.dl) === today && t.col !== "Tamamlandy").length;
+  const inWorkNow = workers.filter(w => w.status === "işde");
 
-  // Dile görä AI instruksiýasy
   const langInstr = {
-    tk: `DIŇE TÜRKMEN dilinde jogap ber. Grammatika düzgünleri:
-- Sözleri dogry ýaz: "işgär" (işger däl), "tabşyryk" (tabşyrık däl), "möhlet" (mohlet däl)
-- Jogap 2-3 sözlemden geçmesin
-- Anyk we düşnükli ýaz, gereksiz sözleri ulanma
-- Gerek bolsa sanlar we sanawlar ulan`,
-    ru: `Отвечай ТОЛЬКО на РУССКОМ языке.
-- Используй правильную грамматику
-- Ответ не более 2-3 предложений
-- Конкретно и по делу`,
-    en: `Reply ONLY in ENGLISH.
-- Use correct grammar
-- Maximum 2-3 sentences
-- Be specific and helpful`,
+    tk: `DIŇE TÜRKMEN dilinde jogap ber:\n- Sözleri dogry ýaz: "işgär", "tabşyryk", "möhlet"\n- 2-4 sözlem aralygynda bol\n- Gerek bolsa **bold** we sanaw ulan`,
+    ru: `Отвечай ТОЛЬКО на РУССКОМ:\n- Правильная грамматика\n- 2-4 предложения\n- Используй **жирный** и списки при необходимости`,
+    en: `Reply ONLY in ENGLISH:\n- Correct grammar\n- 2-4 sentences\n- Use **bold** and lists when helpful`,
   };
 
   const roleLabel = cu.role === "admin" ? "Admin" : cu.role === "bashlik" ? "Başlyk" : "Işgär";
+
+  const overdueDetail = overdueTasks.slice(0,5).map(t => {
+    const w = workers.find(x => x.id === t.who);
+    return `  • "${t.title}" [${w?.name||"?"}] — ${dlToTk(t.dl)}`;
+  }).join("\n");
+
+  const workerLines = workers.map(w => {
+    const wt = tasks.filter(t => t.who === w.id);
+    const done = wt.filter(t => t.col === "Tamamlandy").length;
+    const eff = wt.length > 0 ? Math.round(done/wt.length*100) : 0;
+    return `  • ${w.name} (${w.pos||"?"}): ${w.status==="işde"?"işde":"öýde"}, ${wt.length} tabşyryk, ${eff}% eff.`;
+  }).join("\n");
+
   const sysPrompt = [
-    "Sen 'Kömekçi' edara dolandyryş programmasynyň AI kömekçisisin.",
+    "Sen \'Kömekçi\' edara dolandyryş programmasynyň AI kömekçisisin.",
     langInstr[lang] || langInstr.tk,
     "",
-    "Ulanyjy: " + cu.name + " (" + roleLabel + ")",
-    isI
-      ? "Tabşyryklam (" + myT.length + " sany):\n" +
-        (myT.slice(0,5).map(t => "- " + t.title + " [" + t.col + "]" + (t.dl ? " → " + dlToTk(t.dl) : "")).join("\n") || "Tabşyryk ýok") +
-        (myT.length > 5 ? "\n... we ýene " + (myT.length - 5) + " tabşyryk" : "")
-      : "Işgärler: " + workers.length + " sany\n" +
-        "İşdäkiler: " + (workers.filter(w => w.status === "işde").map(w => w.name).join(", ") || "Ýok") + "\n" +
-        "Tabşyryklar — Etmeli:" + tasks.filter(t => t.col === "Etmeli").length +
-        " Dowam:" + tasks.filter(t => t.col === "Dowam edýär").length +
-        " Tamam:" + tasks.filter(t => t.col === "Tamamlandy").length + "\n" +
-        "Möhleti geçen: " + overdue,
+    `Ulanyjy: ${cu.name} (${roleLabel})`,
     "",
-    "Ýönekeý, düşnükli, gysgaça jogap ber.",
+    isI
+      ? `Meniň tabşyryklam (${myT.length} sany):\n` +
+        (myT.map(t => `  • ${t.title} [${t.col}]${t.dl ? " — " + dlToTk(t.dl) : ""}${t.dl && dDiff(dlToTk(t.dl), today) < 0 && t.col !== "Tamamlandy" ? " ⚠️ GEÇDI" : ""}`).join("\n") || "  Tabşyryk ýok")
+      : `Edara ýagdaýy:\n` +
+        `  • Işgärler: ${workers.length} (işde: ${inWorkNow.length} — ${inWorkNow.map(w=>w.name).join(", ")||"ýok"})\n` +
+        `  • Tabşyryklar: Etmeli=${tasks.filter(t=>t.col==="Etmeli").length} | Dowam=${tasks.filter(t=>t.col==="Dowam edýär").length} | Barlag=${tasks.filter(t=>t.col==="Barlag").length} | Tamam=${tasks.filter(t=>t.col==="Tamamlandy").length}\n` +
+        `  • Möhleti geçen: ${overdueTasks.length}${overdueTasks.length > 0 ? "\n" + overdueDetail : ""}\n` +
+        `  • Şu gün gutarýar: ${dueTodayCount}\n` +
+        `\nİşgär statistikasy:\n${workerLines}`,
+    "",
+    "Anyk, gysgaça we peýdaly jogap ber. Markdown ulanyp bilersiň.",
   ].join("\n");
-
-  // ─── Groq AI ─────────────────────────────────────────────────
-  // Key .env-de: VITE_GROQ_KEY=gsk_...  (.gitignore-da goralýar)
-  // Vercel: Settings → Environment Variables → VITE_GROQ_KEY
-  const GROQ_KEY =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;
 
   const send = async (txt) => {
     const msg = (txt || inp).trim();
@@ -2981,60 +3217,39 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     const history = [...msgs, { role: "user", content: msg }];
     setMsgs(history);
     setLoad(true);
-
     try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const r = await fetch("/api/ai", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + GROQ_KEY,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 600,
-          temperature: 0.7,
-          messages: [
-            { role: "system", content: sysPrompt },
-            ...history
-              .filter(m => m.role !== "system")
-              .map(m => ({ role: m.role, content: m.content })),
-          ],
+          system: sysPrompt,
+          messages: history.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
         }),
       });
-
       const d = await r.json();
-
-      if (!r.ok) {
-        throw new Error(d?.error?.message || "HTTP " + r.status);
-      }
-
-      const answer = d?.choices?.[0]?.message?.content;
+      if (!r.ok) throw new Error(d?.error || "HTTP " + r.status);
+      const answer = d?.text;
       if (!answer) throw new Error("Boş jogap");
-
       setMsgs(p => [...p, { role: "assistant", content: answer }]);
-
     } catch (e) {
       setMsgs(p => [...p, {
         role: "assistant",
-        content: "⚠️ AI ýalňyşlygy: " + (e.message || "näbelli") +
-          "\n\nVercel → Settings → Environment Variables → VITE_GROQ_KEY barlaň.",
+        content: `⚠️ Ýalňyşlyk: ${e.message}\n\nVercel → Settings → Environment Variables → **GROQ_KEY** barlaň.`,
       }]);
     }
-
     setLoad(false);
   };
 
-  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, load]);
 
   return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
     >
-      <div style={{ width: mob ? "100%" : "min(420px,96vw)", height: mob ? "88vh" : "min(580px,88vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
-        {/* Header */}
+      <div style={{ width: mob ? "100%" : "min(440px,96vw)", height: mob ? "88vh" : "min(600px,90vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
+          <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 900, fontSize: 14, color: C.tx }}>{tl.aiTitle}</div>
             <div style={{ fontSize: 11, color: C.gn, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
@@ -3042,29 +3257,31 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
               <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
             </div>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}><span style={{fontWeight:700}}>✕</span></button>
+          <button onClick={clearChat} title="Söhbeti arassala" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, marginRight: 4 }}>🗑</button>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}>✕</button>
         </div>
-
-        {/* Çalt soraglar */}
         <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
           {QK.map((q) => (
             <button key={q} onClick={() => send(q)} disabled={load} style={{ padding: "3px 10px", borderRadius: 18, fontSize: 11, fontWeight: 700, background: C.puS, color: C.pu, border: `1px solid ${C.pu}33`, cursor: "pointer", opacity: load ? 0.6 : 1 }}>{q}</button>
           ))}
         </div>
-
-        {/* Mesajlar */}
         <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
           {msgs.map((m, i) => (
             <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 7 }}>
               {m.role === "assistant" && (
-                <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginBottom: 2 }}>🤖</div>
+                <div style={{ width: 28, height: 28, borderRadius: 9, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>🤖</div>
               )}
-              <div style={{ maxWidth: "80%", padding: "9px 13px", lineHeight: 1.6, fontSize: 13, borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none", whiteSpace: "pre-wrap" }}>{m.content}</div>
+              <div style={{ maxWidth: "80%", padding: "9px 13px", borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${C.ac},${C.acD})` : C.sf, color: m.role === "user" ? "#fff" : C.tx, border: m.role === "assistant" ? `1px solid ${C.bd}` : "none" }}>
+                {m.role === "assistant"
+                  ? <MdText text={m.content} C={C} />
+                  : <span style={{ fontSize: 13, lineHeight: 1.6 }}>{m.content}</span>
+                }
+              </div>
             </div>
           ))}
           {load && (
             <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🤖</div>
+              <div style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center" }}>🤖</div>
               <div style={{ padding: "11px 14px", borderRadius: "15px 15px 15px 4px", background: C.sf, border: `1px solid ${C.bd}`, display: "flex", gap: 4, alignItems: "center" }}>
                 {[0, 1, 2].map((i) => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.pu, animation: `kBl 1.2s ${i * 0.2}s infinite` }} />)}
               </div>
@@ -3072,8 +3289,6 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
           )}
           <div ref={endRef} />
         </div>
-
-        {/* Input */}
         <div style={{ padding: "11px 14px", borderTop: `1px solid ${C.bd}`, background: C.sf, display: "flex", gap: 9 }}>
           <input
             value={inp}
@@ -3086,7 +3301,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
           <button
             onClick={() => send()}
             disabled={load || !inp.trim()}
-            style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            style={{ width: 42, height: 42, borderRadius: 12, border: "none", cursor: "pointer", background: !load && inp.trim() ? `linear-gradient(135deg,${C.pu},${C.ac})` : C.bd, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .2s" }}
           >{I.send("white",17)}</button>
         </div>
       </div>
@@ -3094,7 +3309,6 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   );
 }
 
-// ─── Nawigasiýa ───────────────────────────────────────────────
 function getTabs(cu, tl) {
   return [
     { id: "d",   ic: (c,s) => I.home(c,s),     l: tl.navHome    },
@@ -3242,12 +3456,33 @@ export default function App() {
     toast(`${expired.length} tamamlanan tabşyryk arhiwden pozuldy`, "", "info");
   }, [tasks.length, settings?.taskArchiveDays, cu?.role]);
 
-  // Möhlet geçen tabşyryklary barlaýar
+  // Möhlet geçen tabşyryklary barlaýar + push bildiriş iberýär
   useEffect(() => {
     if (!cu) return;
     const od = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy");
-    if (od.length > 0) toast(`${od.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
+    if (od.length > 0) {
+      toast(`${od.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
+      // Browser push bildirişi
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          new Notification("⚠️ Komekchi", {
+            body: `${od.length} tabşyrykda möhlet geçdi! Tabşyryklar bölümine baryň.`,
+            icon: "/favicon.ico",
+          });
+        } catch {}
+      }
+    }
   }, [cu]); // eslint-disable-line
+
+  // Push bildiriş rugsadyny soramak (giriş edensoň)
+  useEffect(() => {
+    if (!cu) return;
+    if ("Notification" in window && Notification.permission === "default") {
+      setTimeout(() => {
+        Notification.requestPermission().catch(() => {});
+      }, 3000);
+    }
+  }, [cu?.id]); // eslint-disable-line
 
   // Loading ekrany
   if (loading) return (
