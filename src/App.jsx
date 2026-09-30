@@ -16,10 +16,11 @@ let TL = null;
 // Login ady → e-poçta (SQL-daky _kom_email() we api/_sb.js bilen BIRMEŇZEŞ bolmaly)
 function toEmail(username) {
   const u = String(username || "").trim().toLowerCase();
-  if (/^[a-z0-9._-]{1,40}$/.test(u)) return u + "@komekchi.app";
-  const hex = Array.from(new TextEncoder().encode(u)).map((b) => b.toString(16).padStart(2, "0")).join("");
-return "u_" + hex + "@komekchi.app";
+  if (!u) return "";
+  if (u.includes("@")) return u;
+  return u + "@komekchi.app";
 }
+
 
 async function accessToken() {
   const { data } = await sb.auth.getSession(); // wagty geçen bolsa awtomatik täzeleýär
