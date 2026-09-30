@@ -18,18 +18,31 @@ export function bearer(req) {
 // Token dogry bolsa ulanyjyny gaýtarýar
 export async function getUser(token) {
   if (!token || !SB_URL || !ANON) return null;
-  const r = await fetch(SB_URL + "/auth/v1/user", { headers: { apikey: ANON, Authorization: "Bearer " + token } });
+  const r = await fetch(SB_URL + "/auth/v1/user", { 
+    headers: { apikey: ANON, Authorization: "Bearer " + token } 
+  });
   if (!r.ok) return null;
   return r.json();
 }
 
 // service_role bilen PostgREST (diňe serwerde)
 export async function svc(path, method = "GET", body) {
+  const headers = {
+    apikey: SERVICE,
+    Authorization: "Bearer " + SERVICE,
+    "Content-Type": "application/json",
+  };
+  
+  if (method === "POST" || method === "PATCH" || method === "PUT") {
+    headers["Prefer"] = "return=representation";
+  }
+
   const r = await fetch(SB_URL + "/rest/v1/" + path, {
     method,
-    headers: { apikey: SERVICE, Authorization: "Bearer " + SERVICE, "Content-Type": "application/json", Prefer: "return=representation" },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+  
   const t = await r.text();
   if (!r.ok) throw new Error(t || "HTTP " + r.status);
   return t ? JSON.parse(t) : null;
@@ -43,6 +56,6 @@ export async function authAdmin(path, method, body) {
   });
   const t = await r.text();
   const j = t ? JSON.parse(t) : null;
-  if (!r.ok) throw new Error(j?.msg || j?.message || j?.error_description || "HTTP " + r.status);
+  if (!r.ok) throw new Error(j?.msg || j?.message || j?.error_description || j?.error || "HTTP " + r.status);
   return j;
 }

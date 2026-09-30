@@ -18,7 +18,7 @@ function toEmail(username) {
   const u = String(username || "").trim().toLowerCase();
   if (/^[a-z0-9._-]{1,40}$/.test(u)) return u + "@komekchi.app";
   const hex = Array.from(new TextEncoder().encode(u)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return "u_" + hex + "@komekchi.app";
+return "u_" + hex + "@komekchi.app";
 }
 
 async function accessToken() {
@@ -279,7 +279,7 @@ const tMin   = (t) => { if (!t) return 0; const [h, m] = t.split(":").map(Number
 const calcH  = (a, b, tl) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); const h = tl?.hAbbr ?? "sa", m = tl?.minAbbr ?? "min"; return `${Math.floor(d / 60)}${h} ${d % 60}${m}`; };
 
 // Sene tapawudy: a - b gün (YYYY-MM-DD formaty)
-const dDiff  = (a, b) => {
+const dDiff = (a, b) => {
   if (!a || !b) return 0;
   return Math.floor((new Date(a) - new Date(b)) / 864e5);
 };
