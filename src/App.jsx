@@ -1,94 +1,120 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 // ─── Supabase ─────────────────────────────────────────────────
-const SB_URL = "https://gilwqcqzzlxvdpqokpyh.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
-// Supabase API helper
-async function sbFetch(path, method="GET", body=null) {
+// URL we anon açar açyk (public) — howpsuzlyk RLS-de. .env → VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
+
+const sb = createClient(SB_URL, SB_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: "komekchi-auth" },
+});
+
+// Häzirki dil (sbFetch ýalňyşlyk habarlaryny terjime etmek üçin; App her render-de täzeleýär)
+let TL = null;
+
+// Login ady → e-poçta (SQL-daky _kom_email() we api/_sb.js bilen BIRMEŇZEŞ bolmaly)
+function toEmail(username) {
+  const u = String(username || "").trim().toLowerCase();
+  if (/^[a-z0-9._-]{1,40}$/.test(u)) return u + "@komekchi.app";
+  const hex = Array.from(new TextEncoder().encode(u)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return "u_" + hex + "@komekchi.app";
+}
+
+async function accessToken() {
+  const { data } = await sb.auth.getSession(); // wagty geçen bolsa awtomatik täzeleýär
+  return data?.session?.access_token || null;
+}
+
+// PostgREST — hemişe ULANYJYNYŇ tokeni bilen (RLS rola görä çäklendirýär)
+async function sbFetch(path, method = "GET", body = null, extraHeaders = null) {
+  const token = await accessToken();
+  if (!token) throw new Error(TL?.sessionExpired || "Session expired");
   const headers = {
-    "apikey": SB_KEY,
-    "Authorization": "Bearer " + SB_KEY,
+    apikey: SB_KEY,
+    Authorization: "Bearer " + token,
     "Content-Type": "application/json",
+    ...(extraHeaders || {}),
   };
+  if (method === "POST" || method === "PATCH") headers["Prefer"] = "return=representation";
 
-  // Diňe täze maglumat goşulanda (POST) ýa-da üýtgedilende (PATCH) 
-  // bize täze maglumatyň nusgasyny gaýtaryp bermegini soraýarys.
-  if (method === "POST" || method === "PATCH") {
-    headers["Prefer"] = "return=representation";
+  let res;
+  try {
+    res = await fetch(SB_URL + "/rest/v1/" + path, { method, headers, body: body ? JSON.stringify(body) : null });
+  } catch {
+    throw new Error(TL?.netError || "Network error");
   }
-
-  const res = await fetch(SB_URL + "/rest/v1/" + path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : null,
-  });
 
   if (!res.ok) {
-    const err = await res.text();
-    console.error("Supabase Error:", err);
-    throw new Error(err);
+    const txt = await res.text();
+    let j = null; try { j = JSON.parse(txt); } catch {}
+    console.error("Supabase Error:", res.status, txt);
+    if (res.status === 401) { sb.auth.signOut(); throw new Error(TL?.sessionExpired || "Session expired"); }
+    if (res.status === 403 || j?.code === "42501" || /row-level security/i.test(txt)) throw new Error(TL?.permDenied || "Permission denied");
+    throw new Error(j?.message || txt || "HTTP " + res.status);
   }
-
-  // Eger baza '204 No Content' (jogap boş) gaýtarsa, programma ýalňyşlyk bermez ýaly:
   if (res.status === 204) return null;
-
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
+// PostgREST 1000 setirden köp gaýtarmaýar — sahypalap ählisini alýarys
+async function sbAll(path) {
+  const out = [];
+  for (let from = 0; from < 50000; from += 1000) {
+    const rows = await sbFetch(path, "GET", null, { "Range-Unit": "items", Range: `${from}-${from + 999}` });
+    const arr = rows || [];
+    out.push(...arr);
+    if (arr.length < 1000) break;
+  }
+  return out;
+}
 
-// ─── Supabase Storage — faýl ýüklemek ─────────────
-const SB_STORAGE = SB_URL + "/storage/v1";
+// Serwer funksiýalary (/api/admin, /api/ai) — token bilen
+async function api(name, body) {
+  const token = await accessToken();
+  if (!token) throw new Error(TL?.sessionExpired || "Session expired");
+  let r;
+  try {
+    r = await fetch("/api/" + name, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify(body),
+    });
+  } catch { throw new Error(TL?.netError || "Network error"); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || "HTTP " + r.status); e.code = j.error; throw e; }
+  return j;
+}
 
+// ─── Supabase Storage ─────────────────────────────
 async function uploadFile(file, taskId) {
   const ext  = file.name.split(".").pop();
-  const path = `tasks/${taskId}/${uid()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-  const res  = await fetch(`${SB_STORAGE}/object/task-files/${path}`, {
-    method: "POST",
-    headers: {
-      "apikey":        SB_KEY,
-      "Authorization": "Bearer " + SB_KEY,
-      "Content-Type":  file.type || "application/octet-stream",
-    },
-    body: file,
-  });
-  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  const path = `tasks/${taskId}/${uid()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const { error } = await sb.storage.from("task-files").upload(path, file, { contentType: file.type || "application/octet-stream" });
+  if (error) throw new Error(error.message);
   return { name: file.name, path, size: file.size, type: file.type, ext };
 }
 
-function getFileUrl(path) {
-  return `${SB_STORAGE}/object/public/task-files/${path}`;
+// task-files ýapyk bucket — wagtlaýyn (signed) link bilen açylýar
+async function openFile(path) {
+  const w = window.open("", "_blank");
+  try {
+    const { data, error } = await sb.storage.from("task-files").createSignedUrl(path, 300);
+    if (error) throw error;
+    if (w) w.location.href = data.signedUrl; else window.location.href = data.signedUrl;
+  } catch (e) {
+    if (w) w.close();
+    window.dispatchEvent(new CustomEvent("k-err", { detail: e.message }));
+  }
 }
 
-// İşgär profil suraty ýüklemek
 async function uploadWorkerAvatar(file, workerId) {
-  const ext  = file.name.split(".").pop();
+  const ext  = (file.name.split(".").pop() || "jpg").replace(/[^a-zA-Z0-9]/g, "");
   const path = `avatars/${workerId}_${Date.now()}.${ext}`;
-  const res  = await fetch(`${SB_STORAGE}/object/worker-avatars/${path}`, {
-    method: "POST",
-    headers: {
-      "apikey":        SB_KEY,
-      "Authorization": "Bearer " + SB_KEY,
-      "Content-Type":  file.type || "image/jpeg",
-    },
-    body: file,
-  });
-  // Bucket ýok bolsa, task-files bucket-a ýükle
-  if (!res.ok) {
-    const path2 = `avatars/${workerId}_${Date.now()}.${ext}`;
-    const res2 = await fetch(`${SB_STORAGE}/object/task-files/${path2}`, {
-      method: "POST",
-      headers: {
-        "apikey":        SB_KEY,
-        "Authorization": "Bearer " + SB_KEY,
-        "Content-Type":  file.type || "image/jpeg",
-      },
-      body: file,
-    });
-    if (!res2.ok) throw new Error("Avatar ýüklenip bilinmedi");
-    return `${SB_STORAGE}/object/public/task-files/${path2}`;
-  }
-  return `${SB_STORAGE}/object/public/worker-avatars/${path}`;
+  const { error } = await sb.storage.from("worker-avatars").upload(path, file, { contentType: file.type || "image/jpeg" });
+  if (error) throw new Error(TL?.errAvatar || error.message);
+  return sb.storage.from("worker-avatars").getPublicUrl(path).data.publicUrl;
 }
 
 function fileIcon(ext) {
@@ -109,70 +135,14 @@ function fmtSize(bytes) {
   if (bytes < 1048576)    return (bytes/1024).toFixed(1) + " KB";
   return (bytes/1048576).toFixed(1) + " MB";
 }
-// ──────────────────────────────────────────────────
 
-// Supabase real-time helper
+// Real-time (supabase-js) — RLS bilen: her rol diňe özüne rugsat berilen üýtgeşmeleri alýar
 function sbSubscribe(table, callback) {
-  let ws = null;
-  let hbInterval = null;
-  let reconnectTimer = null;
-  let active = true;
-  let ref = 1;
-
-  function connect() {
-    if (!active) return;
-    try {
-      ws = new WebSocket(
-        SB_URL.replace("https","wss") + "/realtime/v1/websocket?apikey=" + SB_KEY + "&vsn=1.0.0"
-      );
-
-      ws.onopen = () => {
-        // Kanala goşul
-        ws.send(JSON.stringify({
-          topic: "realtime:public:" + table,
-          event: "phx_join",
-          payload: {},
-          ref: String(ref++)
-        }));
-        // Heartbeat — 25s-de bir (Supabase 60s-de disconnect edýär)
-        hbInterval = setInterval(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(ref++) }));
-          }
-        }, 25000);
-      };
-
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.event === "INSERT" || msg.event === "UPDATE" || msg.event === "DELETE") {
-            callback(msg.event, msg.payload?.record, msg.payload?.old_record);
-          }
-        } catch {}
-      };
-
-      ws.onerror = () => {
-        clearInterval(hbInterval);
-      };
-
-      ws.onclose = () => {
-        clearInterval(hbInterval);
-        // 5s sonra täzeden baglan
-        if (active) {
-          reconnectTimer = setTimeout(connect, 5000);
-        }
-      };
-    } catch {}
-  }
-
-  connect();
-
-  return () => {
-    active = false;
-    clearInterval(hbInterval);
-    clearTimeout(reconnectTimer);
-    if (ws) ws.close();
-  };
+  const ch = sb
+    .channel("rt-" + table + "-" + Math.random().toString(36).slice(2, 8))
+    .on("postgres_changes", { event: "*", schema: "public", table }, (p) => callback(p.eventType, p.new, p.old))
+    .subscribe();
+  return () => { sb.removeChannel(ch); };
 }
 // ──────────────────────────────────────────────────────────────
 
@@ -288,19 +258,14 @@ const LogoIcon = ({ size=36 }) => {
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Kömekçi funksiýalar ─────────────────────────────────────
-const gNow = () => {
-  const d = new Date();
-  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
-};
+// Wagt hemişe edara wagt guşagynda (Asia/Ashgabat) — Supabase RLS "şu gün" bilen gabat gelmegi üçin
+const TZ = "Asia/Ashgabat";
+const _fmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const _parts = () => Object.fromEntries(_fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
+const gNow = () => { const p = _parts(); return p.hour + ":" + p.minute; };
 
 // Supabase DATE formaty: YYYY-MM-DD
-const gToday = () => {
-  const d = new Date();
-  const yy = d.getFullYear();
-  const mm = String(d.getMonth()+1).padStart(2,'0');
-  const dd = String(d.getDate()).padStart(2,'0');
-  return `${yy}-${mm}-${dd}`;
-};
+const gToday = () => { const p = _parts(); return `${p.year}-${p.month}-${p.day}`; };
 
 // Görkezmek üçin: YYYY-MM-DD -> DD.MM.YYYY
 const fmtDate = (s) => {
@@ -311,7 +276,7 @@ const fmtDate = (s) => {
 
 const uid    = () => Math.random().toString(36).slice(2, 9);
 const tMin   = (t) => { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-const calcH  = (a, b) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); return `${Math.floor(d / 60)}sa ${d % 60}min`; };
+const calcH  = (a, b, tl) => { if (!a || !b) return null; const d = tMin(b) - tMin(a); const h = tl?.hAbbr ?? "sa", m = tl?.minAbbr ?? "min"; return `${Math.floor(d / 60)}${h} ${d % 60}${m}`; };
 
 // Sene tapawudy: a - b gün (YYYY-MM-DD formaty)
 const dDiff  = (a, b) => {
@@ -320,7 +285,7 @@ const dDiff  = (a, b) => {
 };
 
 // input type="date" YYYY-MM-DD berýär — görkemek üçin DD.MM.YYYY
-const dlToTk = (dl) => fmtDate(dl);
+const dlToTk = (dl) => fmtDate((dl || "").slice(0, 10)); // diňe görkezmek üçin
 
 // 3 aýyň içindemi? (YYYY-MM-DD formaty)
 const in3M = (s) => {
@@ -336,11 +301,12 @@ const LS = {
 };
 // ═══════════════════════════ DİL ULGAMY ═══════════════════════
 const TK = {
+  permDenied:"Rugsat ýok: bu amal siziň roluňyz üçin gadagan",netError:"Internet ýok ýa-da serwer jogap bermedi",sessionExpired:"Sessiýa gutardy, täzeden giriň",archivedN:"{n} tamamlanan tabşyryk arhiwden pozuldy",overdueNotif:"{n} tabşyrykda möhlet geçdi! Tabşyryklar bölümine baryň.",doneShort:"Tamam",taskDoneToday:"Şu gün tamamlandy",taskDoneAgo:"{n} gün öň tamamlandy",defaultWorker:"Işgär",fileSaved:"Faýl saklandy",pickPhoto:"Surat saýla",loadingDots:"Ýüklenýär...",nWorkers:"{n} işgär",clearChat:"Söhbeti arassala",aiError:"Ýalňyşlyk",aiErrHint:"GROQ_KEY we serwer sazlamalaryny barlaň.",emptyReply:"Boş jogap",errAvatar:"Surat ýüklenip bilinmedi",cantDeleteSelf:"Özüňizi pozup bilmersiňiz",noWorkerLink:"Hasabyňyz işgär bilen baglanyşdyrylmady. Administratora ýüz tutuň.",months:["Ýanwar", "Fewral", "Mart", "Aprel", "Maý", "Iýun", "Iýul", "Awgust", "Sentýabr", "Oktýabr", "Noýabr", "Dekabr"],
   appSub:"Edara Dolandyryş Sistémasy",appSubShort:"Edara Sistémasy",
   login:"Ulgama Giriş",loginSub:"Maglumatyňyzy giriziň",
   username:"Ulanyjy ady",password:"Parol",
   usernamePh:"ulanyjy adyňyz...",passwordPh:"parolyňyz...",
-  loginBtn:"Giriş et",checking:"Barlanýar...",
+  loginBtn:"Giriş et",checking:"Barlanýar...",appLoading:"Ýüklenýär...",
   lightTheme:"Ýagty tema",darkTheme:"Garaňky tema",
   errFill:"Ulanyjy adyny we paroly dolduryň!",
   errWrong:"Ulanyjy ady ýa-da parol nädogry!",
@@ -348,7 +314,7 @@ const TK = {
   navHome:"Baş",navAttend:"Gatnaw",navTasks:"Tabşyryk",
   navAdmin:"Admin",navReport:"Hasabat",
   welcome:"Hoş geldiňiz",
-  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Etmeli",done:"Tamamlandy",
+  inOffice:"Işde",inProgress:"Dowam edýär",waiting:"Etmeli",done:"Tamamlandy",notAtWork:"Işde däl",
   workers:"Işgärler",myTasks:"Meniň Tabşyryklam",
   recentActivity:"Soňky hereketler",noActivity:"Heniz hereket ýok",
   noWorkers:"Heniz işgär goşulmady",noTasks:"Tabşyryk ýok",
@@ -374,9 +340,10 @@ const TK = {
   kanban:"Tabşyryklar Tagtasy",newTask:"Täze tabşyryk",
   editTask:"Tabşyrygy üýtget",createTask:"Täze tabşyryk",
   taskName:"Tabşyryk ady",taskNamePh:"Tabşyryk ady...",
+  priorityLabel:"Dereje",columnLabel:"Sütün",youLabel:"Siz",
   description:"Düşündiriş",descPh:"Gysgaça...",
   worker:"Işgär",priority:"Dereje",column:"Sütün",
-  deadline:"Möhlet",color:"Reňk",
+  deadline:"Möhlet",color:"Reňk",dlPassed:"⚠️ Saýlanan sene geçdi!",
   high:"Ýokary",medium:"Orta",low:"Pes",
   col1:"Etmeli",col2:"Dowam edýär",col3:"Barlag",col4:"Tamamlandy",
   comments:"Bellikler",noComments:"Heniz bellik ýok",commentPh:"Bellik ýaz...",
@@ -388,12 +355,15 @@ const TK = {
   editWorker:"Işgäri üýtget",newWorker:"Täze işgär",
   editUser:"Ulanyjy üýtget",newUser:"Täze ulanyjy",
   fullName:"Ady Familiyasy",position:"Wezipesi",
-  initials:"Başlangyç harplar (mysal: MA)",
+  initials:"Başlangyç harplar (mysal: MA)",photoLabel:"Profil suraty",
   roleLabel:"Roly",linkWorker:"Işgär bilen baglaň",selectWorker:"— Saýlaň —",
+  roleAdmin:"Admin",roleBashlik:"Başlyk",roleIshgar:"Işgär",pwKeepHint:"üýtgetmek üçin ýazyň (boş = üýtgemez)",
   noWorkersAdmin:"Heniz işgär ýok. Ilki işgär goşuň, soňra ulanyjy döredip oňa baglaň.",
   workStartLabel:"Başlanýar",workEndLabel:"Gutarýar",
   lateLimit:"Giç gelmek çägi (min)",
   lateLimitHint:"Iş başlangyjyndan şu minut geçenden soň Giç geldi hasaplanar",
+  taskArchiveLabel:"Tamamlanan tabşyryklary sakla (gün)",
+  taskArchiveHint:"0 = hiç wagt pozulmaz. Tamamlanandan soň şu günden hasaplanar.",
   settingsTitle:"Edara sazlamalary",workTimeLabel:"Iş wagty",lateChipAdmin:"Giç gelmek çägi",
   profile:"Profil sazlamalary",saveProfile:"Sakla",
   changePass:"Paroly üýtget",changePassSub:"Bassaňyz parol üýtgedip bolýar",
@@ -403,8 +373,10 @@ const TK = {
   errUserExists:"Bu ulanyjy ady eýýäm bar!",
   errWrongPass:"Häzirki parol ýalňyş!",errShortPass:"Täze parol azyndan 4 harp!",
   errPassMatch:"Täze parollar gabat gelmeýär!",
+  pwShort:"Gysga",pwWeak:"Gowşak",pwMedium:"Orta",pwStrong:"Güýçli",pwExcellent:"Ajaýyp",
+  pwMatches:"✓ Gabat gelýär",pwNoMatch:"✕ Gabat gelenok",
   saved:"Saklandy",profileUpdated:"Profil täzelendi",
-  reports:"Hasabatlar",totalHoursS:"Jemi sagat",
+  reports:"Hasabatlar",totalHoursS:"Jemi sagat",reportDocTitle:"Komekchi — Hasabat",createdOn:"Döredilen",
   daysCount:"Gün hasaby",workerCount:"Işgärler",workerStats:"Işgär statistikasy",
   positionCol:"Wezipe",daysCol:"Gün",hoursCol:"Sagat",
   lateCol:"Giç",tasksCol:"Tabşyryklar",readyCol:"Taýýar",effCol:"Netijelilik",
@@ -416,6 +388,7 @@ const TK = {
   aiTitle:"AI Kömekçi",aiActive:"Işjeň",
   aiQMyTasks:"Tabşyryklam?",aiQToday:"Şu gün näme etmeli?",
   aiQAdvice:"Maslahat ber",aiQEfficiency:"Nädip has netijeli?",
+  aiResetMsg:"Söhbet täzelendi. Nähili kömek edip bilerin?",
   aiQWho:"Işde kim bar?",aiQOverdue:"Möhleti geçenler?",
   aiQPerf:"Netijelilik nähili?",aiQPlan:"Iş meýilnama düz",
   aiPh:"Sorag ýazyň...",
@@ -426,10 +399,13 @@ const TK = {
   toastWorkerAdded:"Işgär goşuldy",toastWorkerUpdated:"Işgär täzelendi",
   toastWorkerDeleted:"Işgär pozuldy",toastUserAdded:"Ulanyjy goşuldy",
   toastUserUpdated:"Ulanyjy täzelendi",toastUserDeleted:"Ulanyjy pozuldy",
+  toastDeptAdded:"Bölüm goşuldy",toastDeptUpdated:"Bölüm täzelendi",toastDeptDeleted:"Bölüm pozuldy",
+  errorTitle:"Ýalňyşlyk",
   toastSettingsSaved:"Sazlamalar saklandy",
   toastEditDone:"Gatnawy düzeldildi",toastCsvDone:"CSV ýüklenildi",
   toastOverdue:"tabşyrykda möhlet geçdi",toastOverdueSub:"Tabşyryklar bölümine baryň",
   completedToast:"Tamamlandy! 🎉",taskCreated:"Tabşyryk döredildi",
+  archiveToastTitle:"📦 Arhiw",archiveToastMsg:"{days} günden soň awtomatik pozular",
   lateArrival:"giç geldi",onTime:"işe geldi",leftWork:"işden çykdy",
   workSchedule:"Iş:",
   dept:"Bölüm",depts:"Bölümler",addDept:"Bölüm goş",editDept:"Bölümi üýtget",
@@ -439,23 +415,24 @@ const TK = {
   myDept:"Meniň bölümim",deptManager:"Bölüm başlygy",
   fileAttach:"Faýl goş",fileAttached:"Faýllar",noFiles:"Faýl goşulmady",
   fileUpload:"Ýüklenýär...",fileTooBig:"Faýl 10MB-dan uly bolup bilmez!",
-  fileRemove:"Aýyr",fileDownload:"Ýükle",
-  afterHours:"Iş wagty gutaran soň geldi",afterHoursMsg:"Iş sagady tamamlanansoň giriş bellenildi",
+  fileRemove:"Aýyr",fileDownload:"Ýükle",hAbbr:"sa",minAbbr:"min",
+  afterHours:"Iş wagty gutaran soň geldi",afterHoursMsg:"Iş sagady tamamlanansoň giriş bellenildi",workShort:"Iş",startsAt:"{t}-dan başlaýar",
   beforeHours:"Iş wagtyndan öň geldi",beforeHoursMsg:"Iş sagady başlamazdan 30 min öň giriş bellenildi",
 };
 const RU = {
+  permDenied:"Нет доступа: действие запрещено для вашей роли",netError:"Нет соединения или сервер не отвечает",sessionExpired:"Сессия истекла, войдите снова",archivedN:"Завершённых задач удалено из архива: {n}",overdueNotif:"Просрочено задач: {n}! Откройте раздел задач.",doneShort:"Готово",taskDoneToday:"Завершено сегодня",taskDoneAgo:"Завершено {n} дн. назад",defaultWorker:"Сотрудник",fileSaved:"Файл сохранён",pickPhoto:"Выбрать фото",loadingDots:"Загрузка...",nWorkers:"Сотрудников: {n}",clearChat:"Очистить чат",aiError:"Ошибка",aiErrHint:"Проверьте GROQ_KEY и настройки сервера.",emptyReply:"Пустой ответ",errAvatar:"Не удалось загрузить фото",cantDeleteSelf:"Нельзя удалить самого себя",noWorkerLink:"Ваш аккаунт не привязан к сотруднику. Обратитесь к администратору.",months:["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
   appSub:"Система Управления Офисом",appSubShort:"Система Управления",
   login:"Вход в систему",loginSub:"Введите ваши данные",
   username:"Имя пользователя",password:"Пароль",
   usernamePh:"ваш логин...",passwordPh:"ваш пароль...",
-  loginBtn:"Войти",checking:"Проверка...",
+  loginBtn:"Войти",checking:"Проверка...",appLoading:"Загрузка...",
   lightTheme:"Светлая тема",darkTheme:"Тёмная тема",
   errFill:"Введите имя пользователя и пароль!",
   errWrong:"Неверный логин или пароль!",logout:"Выход",
   navHome:"Главная",navAttend:"Посещаемость",navTasks:"Задачи",
   navAdmin:"Админ",navReport:"Отчёты",
   welcome:"Добро пожаловать",
-  inOffice:"На работе",inProgress:"В процессе",waiting:"К выполнению",done:"Завершено",
+  inOffice:"На работе",inProgress:"В процессе",waiting:"К выполнению",done:"Завершено",notAtWork:"Не на работе",
   workers:"Сотрудники",myTasks:"Мои задачи",
   recentActivity:"Последние действия",noActivity:"Нет действий",
   noWorkers:"Сотрудников пока нет",noTasks:"Нет задач",
@@ -478,9 +455,10 @@ const RU = {
   kanban:"Канбан-доска",newTask:"Новая задача",
   editTask:"Редактировать задачу",createTask:"Новая задача",
   taskName:"Название задачи",taskNamePh:"Название задачи...",
+  priorityLabel:"Приоритет",columnLabel:"Колонка",youLabel:"Вы",
   description:"Описание",descPh:"Кратко...",
   worker:"Сотрудник",priority:"Приоритет",column:"Колонка",
-  deadline:"Срок выполнения",color:"Цвет",
+  deadline:"Срок выполнения",color:"Цвет",dlPassed:"⚠️ Выбранная дата уже прошла!",
   high:"Высокий",medium:"Средний",low:"Низкий",
   col1:"К выполнению",col2:"В процессе",col3:"На проверке",col4:"Готово",
   comments:"Комментарии",noComments:"Комментариев пока нет",commentPh:"Написать комментарий...",
@@ -491,11 +469,14 @@ const RU = {
   addWorker:"Добавить сотрудника",addUser:"Добавить пользователя",
   editWorker:"Редактировать сотрудника",newWorker:"Новый сотрудник",
   editUser:"Редактировать пользователя",newUser:"Новый пользователь",
-  fullName:"Полное имя",position:"Должность",initials:"Инициалы (например: ОА)",
+  fullName:"Полное имя",position:"Должность",initials:"Инициалы (например: ОА)",photoLabel:"Фото профиля",
   roleLabel:"Роль",linkWorker:"Привязать сотрудника",selectWorker:"— Выберите —",
+  roleAdmin:"Админ",roleBashlik:"Руководитель",roleIshgar:"Сотрудник",pwKeepHint:"введите для смены (пусто = без изменений)",
   noWorkersAdmin:"Сотрудников пока нет. Сначала добавьте сотрудника, затем создайте пользователя.",
   workStartLabel:"Начало",workEndLabel:"Конец",lateLimit:"Порог опоздания (мин)",
   lateLimitHint:"После этого количества минут от начала работы считается опозданием",
+  taskArchiveLabel:"Хранить завершённые задачи (дней)",
+  taskArchiveHint:"0 = никогда не удалять. Отсчёт со дня завершения.",
   settingsTitle:"Настройки офиса",workTimeLabel:"Рабочее время",lateChipAdmin:"Порог опозд.",
   profile:"Настройки профиля",saveProfile:"Сохранить",
   changePass:"Изменить пароль",changePassSub:"Нажмите чтобы изменить пароль",
@@ -504,7 +485,9 @@ const RU = {
   errFillProfile:"Заполните имя и логин!",errUserExists:"Этот логин уже занят!",
   errWrongPass:"Неверный текущий пароль!",errShortPass:"Пароль минимум 4 символа!",
   errPassMatch:"Пароли не совпадают!",saved:"Сохранено",profileUpdated:"Профиль обновлён",
-  reports:"Отчёты",totalHoursS:"Всего часов",daysCount:"Дней",workerCount:"Сотрудников",
+  pwShort:"Короткий",pwWeak:"Слабый",pwMedium:"Средний",pwStrong:"Сильный",pwExcellent:"Отличный",
+  pwMatches:"✓ Совпадает",pwNoMatch:"✕ Не совпадает",
+  reports:"Отчёты",totalHoursS:"Всего часов",daysCount:"Дней",workerCount:"Сотрудников",reportDocTitle:"Komekchi — Отчёт",createdOn:"Создано",
   workerStats:"Статистика сотрудников",
   positionCol:"Должность",daysCol:"Дни",hoursCol:"Часы",
   lateCol:"Опозд.",tasksCol:"Задачи",readyCol:"Готово",effCol:"Эффектив.",
@@ -516,6 +499,7 @@ const RU = {
   aiTitle:"ИИ-Помощник",aiActive:"Активен",
   aiQMyTasks:"Мои задачи?",aiQToday:"Что делать сегодня?",
   aiQAdvice:"Совет",aiQEfficiency:"Как быть эффективнее?",
+  aiResetMsg:"Чат обновлён. Чем могу помочь?",
   aiQWho:"Кто на работе?",aiQOverdue:"Просроченные?",
   aiQPerf:"Как продуктивность?",aiQPlan:"Составь план",aiPh:"Напишите вопрос...",
   aiGreet:"Привет",aiGreetMsg:"Я ИИ-помощник Komekchi. Как могу помочь?",
@@ -525,10 +509,13 @@ const RU = {
   toastWorkerAdded:"Сотрудник добавлен",toastWorkerUpdated:"Сотрудник обновлён",
   toastWorkerDeleted:"Сотрудник удалён",toastUserAdded:"Пользователь добавлен",
   toastUserUpdated:"Пользователь обновлён",toastUserDeleted:"Пользователь удалён",
+  toastDeptAdded:"Отдел добавлен",toastDeptUpdated:"Отдел обновлён",toastDeptDeleted:"Отдел удалён",
+  errorTitle:"Ошибка",
   toastSettingsSaved:"Настройки сохранены",
   toastEditDone:"Посещаемость исправлена",toastCsvDone:"CSV скачан",
   toastOverdue:"задач просрочено",toastOverdueSub:"Перейдите в раздел задач",
   completedToast:"Готово!",taskCreated:"Задача создана",
+  archiveToastTitle:"📦 Архив",archiveToastMsg:"Будет удалено автоматически через {days} дн.",
   lateArrival:"опоздал",onTime:"пришёл на работу",leftWork:"ушёл с работы",
   workSchedule:"Работа:",
   dept:"Отдел",depts:"Отделы",addDept:"Добавить отдел",editDept:"Редактировать отдел",
@@ -538,23 +525,24 @@ const RU = {
   myDept:"Мой отдел",deptManager:"Руководитель отдела",
   fileAttach:"Прикрепить файл",fileAttached:"Файлы",noFiles:"Файлы не прикреплены",
   fileUpload:"Загрузка...",fileTooBig:"Файл не может быть больше 10МБ!",
-  fileRemove:"Удалить",fileDownload:"Скачать",
-  afterHours:"Пришёл после рабочего времени",afterHoursMsg:"Рабочее время закончилось, приход отмечен",
+  fileRemove:"Удалить",fileDownload:"Скачать",hAbbr:"ч",minAbbr:"мин",
+  afterHours:"Пришёл после рабочего времени",afterHoursMsg:"Рабочее время закончилось, приход отмечен",workShort:"Работа",startsAt:"начинается с {t}",
   beforeHours:"Пришёл раньше времени",beforeHoursMsg:"Приход отмечен за 30+ мин до начала работы",
 };
 const EN = {
+  permDenied:"Permission denied for your role",netError:"No connection or the server did not respond",sessionExpired:"Session expired, please sign in again",archivedN:"{n} completed task(s) removed from the archive",overdueNotif:"{n} task(s) overdue! Open the tasks section.",doneShort:"Done",taskDoneToday:"Completed today",taskDoneAgo:"Completed {n} days ago",defaultWorker:"Worker",fileSaved:"File saved",pickPhoto:"Choose photo",loadingDots:"Loading...",nWorkers:"{n} workers",clearChat:"Clear chat",aiError:"Error",aiErrHint:"Check GROQ_KEY and the server settings.",emptyReply:"Empty reply",errAvatar:"Photo upload failed",cantDeleteSelf:"You cannot delete yourself",noWorkerLink:"Your account is not linked to a worker. Please contact the administrator.",months:["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
   appSub:"Office Management System",appSubShort:"Management System",
   login:"Sign In",loginSub:"Enter your credentials",
   username:"Username",password:"Password",
   usernamePh:"your username...",passwordPh:"your password...",
-  loginBtn:"Sign In",checking:"Checking...",
+  loginBtn:"Sign In",checking:"Checking...",appLoading:"Loading...",
   lightTheme:"Light theme",darkTheme:"Dark theme",
   errFill:"Please enter username and password!",
   errWrong:"Invalid username or password!",logout:"Logout",
   navHome:"Home",navAttend:"Attendance",navTasks:"Tasks",
   navAdmin:"Admin",navReport:"Reports",
   welcome:"Welcome",
-  inOffice:"At Work",inProgress:"In Progress",waiting:"Waiting",done:"Done",
+  inOffice:"At Work",inProgress:"In Progress",waiting:"Waiting",done:"Done",notAtWork:"Not at work",
   workers:"Employees",myTasks:"My Tasks",
   recentActivity:"Recent Activity",noActivity:"No activity yet",
   noWorkers:"No employees yet",noTasks:"No tasks",
@@ -577,9 +565,10 @@ const EN = {
   kanban:"Kanban Board",newTask:"New Task",
   editTask:"Edit Task",createTask:"New Task",
   taskName:"Task name",taskNamePh:"Task name...",
+  priorityLabel:"Priority",columnLabel:"Column",youLabel:"You",
   description:"Description",descPh:"Brief description...",
   worker:"Employee",priority:"Priority",column:"Column",
-  deadline:"Deadline",color:"Color",
+  deadline:"Deadline",color:"Color",dlPassed:"⚠️ Selected date has passed!",
   high:"High",medium:"Medium",low:"Low",
   col1:"To Do",col2:"In Progress",col3:"Review",col4:"Done",
   comments:"Comments",noComments:"No comments yet",commentPh:"Write a comment...",
@@ -590,11 +579,14 @@ const EN = {
   addWorker:"Add Employee",addUser:"Add User",
   editWorker:"Edit Employee",newWorker:"New Employee",
   editUser:"Edit User",newUser:"New User",
-  fullName:"Full name",position:"Position",initials:"Initials (e.g. JD)",
+  fullName:"Full name",position:"Position",initials:"Initials (e.g. JD)",photoLabel:"Profile photo",
   roleLabel:"Role",linkWorker:"Link to Employee",selectWorker:"— Select —",
+  roleAdmin:"Admin",roleBashlik:"Manager",roleIshgar:"Employee",pwKeepHint:"type to change (blank = unchanged)",
   noWorkersAdmin:"No employees yet. Add an employee first, then create a user.",
   workStartLabel:"Start",workEndLabel:"End",lateLimit:"Late threshold (min)",
   lateLimitHint:"Minutes after work start before marking as late",
+  taskArchiveLabel:"Keep completed tasks (days)",
+  taskArchiveHint:"0 = never auto-delete. Counted from the completion day.",
   settingsTitle:"Office Settings",workTimeLabel:"Work hours",lateChipAdmin:"Late threshold",
   profile:"Profile Settings",saveProfile:"Save",
   changePass:"Change Password",changePassSub:"Click to change password",
@@ -603,7 +595,9 @@ const EN = {
   errFillProfile:"Please fill in name and username!",errUserExists:"This username is already taken!",
   errWrongPass:"Wrong current password!",errShortPass:"Password must be at least 4 characters!",
   errPassMatch:"Passwords do not match!",saved:"Saved",profileUpdated:"Profile updated",
-  reports:"Reports",totalHoursS:"Total hours",daysCount:"Days",workerCount:"Employees",
+  pwShort:"Short",pwWeak:"Weak",pwMedium:"Medium",pwStrong:"Strong",pwExcellent:"Excellent",
+  pwMatches:"✓ Matches",pwNoMatch:"✕ No match",
+  reports:"Reports",totalHoursS:"Total hours",daysCount:"Days",workerCount:"Employees",reportDocTitle:"Komekchi — Report",createdOn:"Created",
   workerStats:"Employee Statistics",
   positionCol:"Position",daysCol:"Days",hoursCol:"Hours",
   lateCol:"Late",tasksCol:"Tasks",readyCol:"Done",effCol:"Efficiency",
@@ -615,6 +609,7 @@ const EN = {
   aiTitle:"AI Assistant",aiActive:"Active",
   aiQMyTasks:"My tasks?",aiQToday:"What to do today?",
   aiQAdvice:"Give advice",aiQEfficiency:"Be more efficient?",
+  aiResetMsg:"Chat has been reset. How can I help you?",
   aiQWho:"Who is at work?",aiQOverdue:"Overdue tasks?",
   aiQPerf:"Performance?",aiQPlan:"Make a work plan",aiPh:"Type your question...",
   aiGreet:"Hello",aiGreetMsg:"I am Komekchi AI assistant. How can I help you?",
@@ -624,10 +619,13 @@ const EN = {
   toastWorkerAdded:"Employee added",toastWorkerUpdated:"Employee updated",
   toastWorkerDeleted:"Employee deleted",toastUserAdded:"User added",
   toastUserUpdated:"User updated",toastUserDeleted:"User deleted",
+  toastDeptAdded:"Department added",toastDeptUpdated:"Department updated",toastDeptDeleted:"Department deleted",
+  errorTitle:"Error",
   toastSettingsSaved:"Settings saved",
   toastEditDone:"Attendance corrected",toastCsvDone:"CSV downloaded",
   toastOverdue:"tasks overdue",toastOverdueSub:"Go to tasks section",
   completedToast:"Done!",taskCreated:"Task created",
+  archiveToastTitle:"📦 Archive",archiveToastMsg:"Will be auto-deleted in {days} days",
   lateArrival:"arrived late",onTime:"arrived",leftWork:"left work",
   workSchedule:"Work:",
   dept:"Department",depts:"Departments",addDept:"Add Department",editDept:"Edit Department",
@@ -637,8 +635,8 @@ const EN = {
   myDept:"My Department",deptManager:"Department Manager",
   fileAttach:"Attach File",fileAttached:"Files",noFiles:"No files attached",
   fileUpload:"Uploading...",fileTooBig:"File cannot exceed 10MB!",
-  fileRemove:"Remove",fileDownload:"Download",
-  afterHours:"Arrived after work hours",afterHoursMsg:"Work hours ended, check-in recorded",
+  fileRemove:"Remove",fileDownload:"Download",hAbbr:"h",minAbbr:"min",
+  afterHours:"Arrived after work hours",afterHoursMsg:"Work hours ended, check-in recorded",workShort:"Work",startsAt:"starts at {t}",
   beforeHours:"Arrived early",beforeHoursMsg:"Arrived 30+ min before work starts",
 };
 const LANGS = {tk:TK, ru:RU, en:EN};
@@ -760,28 +758,41 @@ const CM = {
 };
 
 const PM = {
-  ýokary: { c: "#FF6B7A", l: "Ýokary" },
-  orta:   { c: "#FFB84D", l: "Orta"   },
-  pes:    { c: "#2ECC8F", l: "Pes"    },
+  ýokary: { c: "#FF6B7A" },
+  orta:   { c: "#FFB84D" },
+  pes:    { c: "#2ECC8F" },
 };
+const PRI_KEY = { ýokary: "high", orta: "medium", pes: "low" };
+function priName(pri, tl) { return tl[PRI_KEY[pri]] || pri; }
 
 const RL = {
-  admin:   { l: "Admin",       ic: (c,s) => I.crown(c,s),     c: "#FF6B7A" },
-  bashlik: { l: "Başlyk",  ic: (c,s) => I.briefcase(c,s), c: "#FFB84D" },
-  ishgar:  { l: "Işgär",   ic: (c,s) => I.hardhat(c,s),   c: "#2ECC8F" },
+  admin:   { ic: (c,s) => I.crown(c,s),     c: "#FF6B7A" },
+  bashlik: { ic: (c,s) => I.briefcase(c,s), c: "#FFB84D" },
+  ishgar:  { ic: (c,s) => I.hardhat(c,s),   c: "#2ECC8F" },
 };
+// Rol adyny saýlanan dilde bermek üçin: RL diňe reňk/ikona saklaýar,
+// ady bolsa tl-den (dile görä) alynýar.
+const ROLE_KEY = { admin: "roleAdmin", bashlik: "roleBashlik", ishgar: "roleIshgar" };
+function roleName(role, tl) { return tl[ROLE_KEY[role]] || role; }
 
 // Başlangyç sazlamalar
 const DEF_SETTINGS = { workStart: "08:00", workEnd: "18:00", lateLimit: 15, taskArchiveDays: 7 };
-
-// Başlangyç ulanyjy — diňe admin
-const INIT_USERS = [{ id: "u1", username: "admin", password: "admin123", role: "admin", name: "Admin", wid: null }];
 
 // ─── React hooks ─────────────────────────────────────────────
 function useMob() {
   const [m, setM] = useState(() => window.innerWidth < 768);
   useEffect(() => {
     const h = () => setM(window.innerWidth < 768);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return m;
+}
+
+function useNarrow() {
+  const [m, setM] = useState(() => window.innerWidth < 1100);
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < 1100);
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
@@ -817,6 +828,25 @@ function useCSS(C) {
       .kb:hover  { filter:brightness(1.12); transform:translateY(-1px); }
       .kn:hover  { background:${C.acG} !important; color:${C.ac} !important; }
       .ksk       { animation:kSh .4s ease; }
+
+      /* ── Uýgunlyk: telefon / planşet / kompýuter / uly monitor (smart board) ── */
+      html, body, #root { min-height: 100%; }
+      body { min-height: 100dvh; -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
+      button { touch-action: manipulation; }
+      :root { --kz: 1; }
+      .k-z { zoom: var(--kz); }
+      @media (min-width: 1800px) { :root { --kz: 1.2; } .k-main { max-width: 1900px !important; } }
+      @media (min-width: 2400px) { :root { --kz: 1.5; } .k-main { max-width: 2300px !important; } }
+      @media (min-width: 3200px) { :root { --kz: 2; }   .k-main { max-width: 3000px !important; } }
+      @media (max-width: 767px)  { input, select, textarea { font-size: 16px !important; } }
+      @media (max-width: 520px)  { .k-g2 { grid-template-columns: 1fr !important; } }
+      @media (pointer: coarse) {
+        .k-mv { padding: 9px 13px !important; font-size: 12px !important; }
+        .k-ib { width: 38px !important; height: 38px !important; }
+        .kn   { min-height: 42px; }
+        input, select, textarea { min-height: 42px; }
+        .kc:hover, .kb:hover { transform: none; }
+      }
     `;
   }, [C]);
 }
@@ -864,9 +894,9 @@ const Chip = ({ children, color, sm = false }) => (
   }}>{children}</span>
 );
 
-const RC = ({ role }) => {
+const RC = ({ role, tl }) => {
   const r = RL[role];
-  return r ? <Chip color={r.c}><span style={{display:"flex",alignItems:"center",gap:4}}>{r.ic(r.c, 12)} {r.l}</span></Chip> : null;
+  return r ? <Chip color={r.c}><span style={{display:"flex",alignItems:"center",gap:4}}>{r.ic(r.c, 12)} {roleName(role, tl)}</span></Chip> : null;
 };
 
 function Btn({ ch, onClick, v = "p", sz = "m", disabled = false, block = false, sx = {} }) {
@@ -973,10 +1003,10 @@ const Pop = ({ C, onClose, children, w = 480 }) => (
   >
     <div style={{
       background: C.cd, border: `1px solid ${C.bd}`, borderRadius: 22,
-      padding: 24, width: "100%", maxWidth: w, maxHeight: "90vh",
+      padding: 24, width: "100%", maxWidth: w, maxHeight: "calc(90dvh / var(--kz, 1))",
       overflowY: "auto", boxShadow: C.sh, animation: "kPp .25s ease",
       margin: "0 8px",
-    }}>{children}</div>
+    }} className="k-z">{children}</div>
   </div>
 );
 
@@ -986,8 +1016,8 @@ const Deny = ({ C, tl }) => (
     justifyContent: "center", minHeight: 300, gap: 16,
   }}>
     <div style={{ color: C.txM }}>{I.lock(C.txM, 52)}</div>
-    <div style={{ fontSize: 20, fontWeight: 900, color: C.tx }}>{tl ? tl.deny : "Rugsat ýok"}</div>
-    <Chip color="#FF6B7A">{tl ? tl.denyMsg : "Siziň bu bölüme girişiňiz çäkli"}</Chip>
+    <div style={{ fontSize: 20, fontWeight: 900, color: C.tx }}>{tl ? tl.deny : "—"}</div>
+    <Chip color="#FF6B7A">{tl ? tl.denyMsg : ""}</Chip>
   </div>
 );
 
@@ -1076,9 +1106,9 @@ function InlineMd({ text, C }) {
 }
 function Toast({ ts, rm, C }) {
   return (
-    <div style={{
+    <div className="k-z" style={{
       position: "fixed", top: 16, right: 16, zIndex: 1000,
-      display: "flex", flexDirection: "column", gap: 8, maxWidth: 300,
+      display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(300px, 92vw)",
     }}>
       {ts.map((t) => (
         <div
@@ -1107,15 +1137,15 @@ function Toast({ ts, rm, C }) {
 }
 
 // ─── Parol güýji ──────────────────────────────────────────────
-function PwStrength({ pw, match, C }) {
+function PwStrength({ pw, match, C, tl }) {
   const score = [pw.length >= 6, /[A-Za-z]/.test(pw), /[0-9]/.test(pw), pw.length >= 10]
     .filter(Boolean).length;
   const meta = [
-    { l: "Gysga",  c: "#FF6B7A" },
-    { l: "Gowşak", c: "#FFB84D" },
-    { l: "Orta",   c: "#6B8FFF" },
-    { l: "Güýçli", c: "#2ECC8F" },
-    { l: "Ajaýyp", c: "#B07EFF" },
+    { l: tl.pwShort,     c: "#FF6B7A" },
+    { l: tl.pwWeak,      c: "#FFB84D" },
+    { l: tl.pwMedium,    c: "#6B8FFF" },
+    { l: tl.pwStrong,    c: "#2ECC8F" },
+    { l: tl.pwExcellent, c: "#B07EFF" },
   ][score];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -1129,8 +1159,8 @@ function PwStrength({ pw, match, C }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: meta.c }}>{meta.l}</span>
-        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.saved.replace("Saklandy","✓ Gabat gelýär")}</span>}
-        {!match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.rd }}>{tl.errPassMatch.slice(0,14)}</span>}
+        {match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.gn }}>{tl.pwMatches}</span>}
+        {!match && pw && <span style={{ fontSize: 11, fontWeight: 700, color: C.rd }}>{tl.pwNoMatch}</span>}
       </div>
     </div>
   );
@@ -1172,7 +1202,7 @@ function PwField({ label, val, set, C }) {
 // ═══════════════════════════════════════════════════════════════
 // LOGIN SAHYPASY
 // ═══════════════════════════════════════════════════════════════
-function Login({ users, onLogin, C, dark, setDark, tl, lang, setL }) {
+function Login({ onLogin, C, dark, setDark, tl, lang, setL }) {
   useCSS(C);
   const [un, setUn]       = useState("");
   const [pw, setPw]       = useState("");
@@ -1183,20 +1213,26 @@ function Login({ users, onLogin, C, dark, setDark, tl, lang, setL }) {
 
   const doShake = () => { setShake(true); setTimeout(() => setShake(false), 500); };
 
-  const go = () => {
+  const go = async () => {
     if (!un.trim() || !pw.trim()) { setErr(tl.errFill); doShake(); return; }
     setBusy(true); setErr("");
-    setTimeout(() => {
-      const found = users.find((u) => u.username === un.trim() && u.password === pw.trim());
-      if (found) { onLogin(found); }
-      else { setErr(tl.errWrong); doShake(); }
-      setBusy(false);
-    }, 600);
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email: toEmail(un), password: pw.trim() });
+      if (error) {
+        const bad = /invalid|credentials|not found/i.test(error.message);
+        setErr(bad ? tl.errWrong : tl.netError); doShake(); setBusy(false); return;
+      }
+      const ok = await onLogin();       // profil + maglumatlary ýükleýär
+      if (!ok) { setErr(tl.errWrong); doShake(); }
+    } catch (e) {
+      setErr(tl.errWrong); doShake();
+    }
+    setBusy(false);
   };
 
   return (
     <div style={{
-      minHeight: "100vh", background: C.bg, display: "flex",
+      minHeight: "100dvh", background: C.bg, display: "flex",
       alignItems: "center", justifyContent: "center", padding: 16,
       position: "relative", overflow: "hidden",
       fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif",
@@ -1345,24 +1381,25 @@ function Profile({ cu, users, setUsers, setCu, C, onClose, toast, tl }) {
   const save = async () => {
     setErr("");
     if (!name.trim() || !unm.trim()) { setErr(tl.errFillProfile); return; }
-    if (users.find((u) => u.username === unm.trim() && u.id !== cu.id)) { setErr(tl.errUserExists); return; }
-    let upd = { ...cu, name: name.trim(), username: unm.trim() };
     if (chPw) {
-      if (cu.password !== op) { setErr(tl.errWrongPass); return; }
-      if (np.length < 4)      { setErr(tl.errShortPass); return; }
-      if (np !== np2)          { setErr(tl.errPassMatch); return; }
-      upd = { ...upd, password: np };
+      if (np.length < 4) { setErr(tl.errShortPass); return; }
+      if (np !== np2)     { setErr(tl.errPassMatch); return; }
     }
     try {
-      await sbFetch(`users?id=eq.${cu.id}`, "PATCH", {
-        name: upd.name, username: upd.username,
-        ...(upd.password !== cu.password ? { password: upd.password } : {}),
+      const { profile } = await api("admin", {
+        action: "self", name: name.trim(), username: unm.trim(),
+        ...(chPw ? { oldPassword: op, newPassword: np } : {}),
       });
-      setUsers((p) => p.map((u) => u.id === cu.id ? upd : u));
+      const upd = { ...cu, name: profile.name, username: profile.username };
+      setUsers((p) => p.map((u) => u.id === cu.id ? { ...u, ...upd } : u));
       setCu(upd);
       toast(tl.saved, tl.profileUpdated, "ok");
       onClose();
-    } catch(e) { setErr(tl.errWrong || e.message); }
+    } catch (e) {
+      if (e.code === "WRONG_PASSWORD") setErr(tl.errWrongPass);
+      else if (e.code === "USERNAME_TAKEN") setErr(tl.errUserExists);
+      else setErr(e.message || tl.errWrong);
+    }
   };
 
   const r = RL[cu.role];
@@ -1376,7 +1413,7 @@ function Profile({ cu, users, setUsers, setCu, C, onClose, toast, tl }) {
         }}>{r.ic(r.c, 22)}</div>
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.tx }}>{tl.profile}</div>
-          <RC role={cu.role} />
+          <RC role={cu.role} tl={tl} />
         </div>
       </div>
 
@@ -1418,7 +1455,7 @@ function Profile({ cu, users, setUsers, setCu, C, onClose, toast, tl }) {
               <div style={{ height: 1, background: C.bd }} />
               <PwField label={tl.newPass} val={np} set={setNp} C={C} />
               <PwField label={tl.repeatPass} val={np2} set={setNp2} C={C} />
-              {np.length > 0 && <PwStrength pw={np} match={np === np2 && np2.length > 0} C={C} />}
+              {np.length > 0 && <PwStrength pw={np} match={np === np2 && np2.length > 0} C={C} tl={tl} />}
             </div>
           )}
         </div>
@@ -1458,8 +1495,8 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
           background: C.sf, border: `1px solid ${C.bd}`,
           borderRadius: 13, padding: 14, display: "flex", flexDirection: "column", gap: 12,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase" }}>🕐 Iş wagty</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.txM, textTransform: "uppercase" }}>{`🕐 ${tl.workTimeLabel}`}</div>
+          <div className="k-g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div>
               <Lbl t={tl.workStartLabel} C={C} />
               <input
@@ -1501,7 +1538,7 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
             </div>
           </div>
           <div>
-            <Lbl t="Tamamlanan tabşyryklary sakla (gün)" C={C} />
+            <Lbl t={tl.taskArchiveLabel} C={C} />
             <input
               type="number" min="0" max="365" value={f.taskArchiveDays ?? 7}
               onChange={(e) => setF(x => ({ ...x, taskArchiveDays: +e.target.value }))}
@@ -1509,7 +1546,7 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
                 background:C.bg, border:`1.5px solid ${C.pu}44`, color:C.tx, fontSize:14, fontFamily:"inherit" }}
             />
             <div style={{ fontSize:11, color:C.txM, marginTop:4 }}>
-              0 = hiç wagt pozulmaz. Tamamlanandan soň şu günden hasaplanar.
+              {tl.taskArchiveHint}
             </div>
           </div>
         </div>
@@ -1523,7 +1560,7 @@ function SettingsModal({ settings, setSettings, C, onClose, toast, tl }) {
     setSettings(f);
     toast(tl.toastSettingsSaved, `${tl.workSchedule} ${f.workStart}–${f.workEnd}`, "ok");
     onClose();
-  } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+  } catch(e) { toast(tl.errorTitle, e.message, "err"); }
 }} />
         </div>
       </div>
@@ -1590,7 +1627,7 @@ function AttEditModal({ rec, workers, C, onSave, onDelete, onClose, tl }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="k-g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <Lbl t={tl.entryTime} C={C} />
             <input
@@ -1649,8 +1686,8 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
   const todA = attend.filter((a) => a.date === gToday());
   const myW  = workers.find((w) => w.id === cu.wid);
 
-  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(dlToTk(t.dl), gToday()) < 0);
-  const dueToday = tasks.filter((t) => t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy");
+  const overdue  = tasks.filter((t) => t.dl && t.col !== "Tamamlandy" && dDiff(t.dl, gToday()) < 0);
+  const dueToday = tasks.filter((t) => t.dl && t.dl === gToday() && t.col !== "Tamamlandy");
   const lateW    = !isI ? workers.filter((w) => {
     const r = todA.find((a) => a.wid === w.id);
     return r && !r.edited && tMin(r.check_in) > tMin(settings.workStart) + settings.lateLimit;
@@ -1710,7 +1747,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
             {tl.welcome}, {cu.name.split(" ")[0]}! 👋
           </div>
           <div style={{ fontSize: 13, color: C.txS, marginTop: 5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {fmtDate(gToday())} <RC role={cu.role} />
+            {fmtDate(gToday())} <RC role={cu.role} tl={tl} />
           </div>
           {!isI && (
             <div style={{ fontSize: 12, color: C.txS, marginTop: 4 }}>
@@ -1726,7 +1763,7 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{myW.name}</div>
               <div style={{ fontSize: 12, color: C.txS }}>{myW.pos}</div>
               <Chip color={myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}
+                {myW.status === "işde" ? `● ${tl.inOffice}` : `○ ${tl.notAtWork}`}
               </Chip>
             </div>
           </div>
@@ -1777,8 +1814,8 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
                       <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
                     </div>
                     <div style={{ display: "flex", gap: 5 }}>
-                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} Giç geldi</span></Chip>}
-                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}</Chip>
+                      {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:4}}>{I.warning(C.yw,11)} {tl.late}</span></Chip>}
+                      <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : `○ ${tl.notAtWork}`}</Chip>
                     </div>
                   </div>
                 );
@@ -1794,8 +1831,8 @@ function Dash({ workers, tasks, attend, depts, C, mob, cu, settings, tl }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {myT.length === 0 && <div style={{ color: C.txM, fontSize: 13 }}>{tl.noTasksCol}</div>}
                 {myT.slice(0, 5).map((t) => {
-                  const ov = t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy";
-                  const du = t.dl && dlToTk(t.dl) === gToday() && t.col !== "Tamamlandy";
+                  const ov = t.dl && dDiff(t.dl, gToday()) < 0 && t.col !== "Tamamlandy";
+                  const du = t.dl && t.dl === gToday() && t.col !== "Tamamlandy";
                   return (
                     <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${ov ? C.rd : du ? C.yw : t.clr}` }}>
                       <div style={{ flex: 1 }}>
@@ -1876,24 +1913,26 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const beforeWH = nowMin < startMin - earlyMin;
     const w  = workers.find((x) => x.id === wid);
     const nm = w ? w.name : "?";
+    // "newA" try blokdan öň kesgitlenmeli — ýogsam catch blokda
+    // "newA is not defined" ýalňyşlygy berer we yza alma (rollback) işlemez.
+    const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
     try {
-      const newA = { id: uid(), wid, date: gToday(), check_in: now, check_out: null, edited: false };
       // ÖŇDEN state täzele — real-time gelende duplicate bolmaz
       setAttend((p) => p.find(x => x.id === newA.id) ? p : [...p, newA]);
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "işde" } : w));
       // Bildiriş
-      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} | Iş: ${settings.workStart}–${settings.workEnd}`, "info");
-      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} | Iş: ${settings.workStart}-dan başlaýar`, "info");
-      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} | Iş: ${settings.workStart}`, "info");
+      if (afterWH)       toast(`${nm} — ${tl.afterHours}`,  `${tl.entry}: ${now} | ${tl.workShort}: ${settings.workStart}–${settings.workEnd}`, "info");
+      else if (beforeWH) toast(`${nm} — ${tl.beforeHours}`, `${tl.entry}: ${now} | ${tl.workShort} ${tl.startsAt.replace("{t}", settings.workStart)}`, "info");
+      else if (late)     toast(`${nm} ${tl.lateArrival}`,   `${tl.entry}: ${now} | ${tl.workShort}: ${settings.workStart}`, "info");
       else               toast(`${nm} ${tl.onTime}`,        `${tl.entry}: ${now}`, "ok");
       // Soňra Supabase-e ýaz
       await sbFetch("attend", "POST", newA);
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "işde" });
     } catch(e) {
       // Ýalňyşlykda state yzyna al
-      setAttend((p) => p.filter(a => a.id !== newA?.id));
+      setAttend((p) => p.filter(a => a.id !== newA.id));
       setWorkers((p) => p.map((w) => w.id === wid ? { ...w, status: "öýde" } : w));
-      toast("Ýalňyşlyk", e.message, "err");
+      toast(tl.errorTitle, e.message, "err");
     }
   };
 
@@ -1904,7 +1943,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     // ÖŇDEN state täzele
     setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && !a.check_out ? { ...a, check_out: now } : a));
     setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "öýde" } : wk));
-    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now} | Işlän: ${rec ? calcH(rec.check_in, now) || "—" : "—"}`, "info");
+    toast(`${w ? w.name : "?"} ${tl.leftWork}`, `${tl.exit}: ${now} | ${tl.worked}: ${rec ? calcH(rec.check_in, now, tl) || "—" : "—"}`, "info");
     try {
       if (rec) await sbFetch(`attend?id=eq.${rec.id}`, "PATCH", { check_out: now });
       await sbFetch(`workers?id=eq.${wid}`, "PATCH", { status: "öýde" });
@@ -1912,7 +1951,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
       // Ýalňyşlykda yzyna al
       setAttend((p) => p.map((a) => a.wid === wid && a.date === gToday() && a.check_out === now ? { ...a, check_out: null } : a));
       setWorkers((p) => p.map((wk) => wk.id === wid ? { ...wk, status: "işde" } : wk));
-      toast("Ýalňyşlyk", e.message, "err");
+      toast(tl.errorTitle, e.message, "err");
     }
   };
 
@@ -1924,16 +1963,20 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
         await sbFetch(`workers?id=eq.${upd.wid}`, "PATCH", { status: upd.check_out ? "öýde" : "işde" });
         setWorkers((p) => p.map((w) => w.id === upd.wid ? { ...w, status: upd.check_out ? "öýde" : "işde" } : w));
       }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-    toast(tl.toastEditDone, "", "ok");
+      toast(tl.toastEditDone, "", "ok");
+    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
-  const delRec = (id) => {
+  const delRec = async (id) => {
     const rec = attend.find((a) => a.id === id);
-    if (rec && rec.date === gToday()) {
-      setWorkers((p) => p.map((w) => w.id === rec.wid ? { ...w, status: "öýde" } : w));
-    }
-    setAttend((p) => p.filter((a) => a.id !== id));
+    try {
+      await sbFetch(`attend?id=eq.${id}`, "DELETE");   // öň diňe ekranda pozulýardy, bazada galýardy
+      if (rec && rec.date === gToday()) {
+        await sbFetch(`workers?id=eq.${rec.wid}`, "PATCH", { status: "öýde" });
+        setWorkers((p) => p.map((w) => w.id === rec.wid ? { ...w, status: "öýde" } : w));
+      }
+      setAttend((p) => p.filter((a) => a.id !== id));
+    } catch (e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
   // ── Işgär görnüşi ─────────────────────────────────────────
@@ -1956,10 +1999,10 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 13, marginBottom: 22 }}>
             <Av a={myW ? myW.av : "?"} i={workers.findIndex((w) => w.id === myWid)} z={54} />
             <div style={{ textAlign: "left" }}>
-              <div style={{ fontWeight: 900, fontSize: 18, color: C.tx }}>{myW ? myW.name : "Işgär"}</div>
+              <div style={{ fontWeight: 900, fontSize: 18, color: C.tx }}>{myW ? myW.name : tl.defaultWorker}</div>
               <div style={{ fontSize: 13, color: C.txS }}>{myW ? myW.pos : ""}</div>
               <Chip color={myW && myW.status === "işde" ? C.gn : C.txM} sm>
-                {myW && myW.status === "işde" ? `● ${tl.atWork}` : "○ Işde däl"}
+                {myW && myW.status === "işde" ? `● ${tl.atWork}` : `○ ${tl.notAtWork}`}
               </Chip>
             </div>
           </div>
@@ -1980,8 +2023,8 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
             </div>
             {isDone && (
               <div style={{ textAlign:"center", background:C.sf, borderRadius:14, padding:"12px 20px", border:`1px solid ${C.pu}44`, minWidth:90 }}>
-                <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>⏱ Işledi</div>
-                <div style={{ fontSize:24, fontWeight:900, color:C.pu }}>{calcH(rec.check_in, rec.check_out)}</div>
+                <div style={{ fontSize:10, fontWeight:700, color:C.txM, textTransform:"uppercase", marginBottom:6, letterSpacing:".06em" }}>{`⏱ ${tl.worked}`}</div>
+                <div style={{ fontSize:24, fontWeight:900, color:C.pu }}>{calcH(rec.check_in, rec.check_out, tl)}</div>
               </div>
             )}
           </div>
@@ -1989,7 +2032,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           {!rec && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <button onClick={() => doIn(myWid)} className="kb" style={{ padding: "17px 46px", borderRadius: 18, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.gn},#0DBF7A)`, color: "#fff", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", gap: 10, boxShadow: `0 8px 24px ${C.gn}44`, transition: "all .2s" }}>
-                Işe geldim
+                {tl.checkIn}
               </button>
               <div style={{ fontSize: 12, color: C.txM }}>{tl.checkInHint}</div>
             </div>
@@ -2010,7 +2053,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               <span>{I.celebrate(C.ac, 22)}</span>
               <div style={{ textAlign: "left" }}>
                 <div style={{ fontWeight: 800, fontSize: 14, color: C.tx }}>{tl.todayDone}</div>
-                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.check_in} — {rec.check_out} · {calcH(rec.check_in, rec.check_out)}</div>
+                <div style={{ fontSize: 12, color: C.txS, marginTop: 2 }}>{rec.check_in} — {rec.check_out} · {calcH(rec.check_in, rec.check_out, tl)}</div>
               </div>
             </div>
           )}
@@ -2024,12 +2067,12 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
             {myHist.map((a) => (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 13px", background: C.sf, borderRadius: 11, borderLeft: `3px solid ${a.check_out ? C.ac : C.gn}` }}>
                 <div style={{ fontSize: 12, color: C.txS, minWidth: 86, fontWeight: 600 }}>
-                  {a.date === gToday() ? "🔵 Şu gün" : fmtDate(a.date)}
+                  {a.date === gToday() ? "🔵 " + tl.today : fmtDate(a.date)}
                 </div>
                 <Chip color={C.gn} sm>{a.check_in}</Chip>
                 <span style={{ color: C.txM, fontSize: 12 }}>→</span>
                 {a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ fontSize: 12, color: C.gn, fontWeight: 700 }}>{tl.atWork}</span>}
-                {a.check_out && <Chip color={C.pu} sm>{calcH(a.check_in, a.check_out)}</Chip>}
+                {a.check_out && <Chip color={C.pu} sm>{calcH(a.check_in, a.check_out, tl)}</Chip>}
                 {a.edited && <Chip color={C.yw} sm>{I.edit(C.yw,11)}</Chip>}
               </div>
             ))}
@@ -2057,7 +2100,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
   const exportCSV = () => {
     const rows = hist.slice(0, 500).map((a) => {
       const w = workers.find((x) => x.id === a.wid);
-      return `${w ? w.name : "?"}|${a.date}|${a.check_in}|${a.check_out || tl.inOffice}|${calcH(a.check_in, a.check_out) || "—"}|${a.edited ? tl.edited : ""}`;
+      return `${w ? w.name : "?"}|${a.date}|${a.check_in}|${a.check_out || tl.inOffice}|${calcH(a.check_in, a.check_out, tl) || "—"}|${a.edited ? tl.edited : ""}`;
     }).join("\n");
     const csv  = `${tl.workerCol}|${tl.dateCol}|${tl.entryCol}|${tl.exitCol}|${tl.workedCol}|${tl.noteCol}\n` + rows;
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
@@ -2065,7 +2108,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
     const el   = document.createElement("a");
     el.href = url; el.download = `gatnawy_${gToday()}.csv`; el.click();
     URL.revokeObjectURL(url);
-    toast(tl.toastCsvDone, "Faýl saklandi", "ok");
+    toast(tl.toastCsvDone, tl.fileSaved, "ok");
   };
 
   return (
@@ -2102,7 +2145,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.tx, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{w.name}</div>
                   <div style={{ fontSize: 12, color: C.txS }}>{w.pos}</div>
                 </div>
-                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:3}}>{I.warning(C.yw,10)} Giç</span></Chip>}
+                {late && <Chip color={C.yw} sm><span style={{display:"flex",alignItems:"center",gap:3}}>{I.warning(C.yw,10)} {tl.lateChip}</span></Chip>}
               </div>
               {/* Aşaky setir — wagt + düwmeler */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -2117,12 +2160,12 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                   <span style={{ fontSize:15, fontWeight:900, color: rec?.check_out ? C.rd : C.txM, fontVariantNumeric:"tabular-nums" }}>{rec?.check_out || "—:—"}</span>
                 </div>
                 {/* Işlän wagt */}
-                {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out)}</Chip>}
+                {done && <Chip color={C.pu} sm>{calcH(rec.check_in, rec.check_out, tl)}</Chip>}
                 {/* Düwmeler — sagda */}
                 <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
-                  {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,13)} Geldi</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
-                  {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.door(C.rd,13)} Gitdi</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
-                  {done && !isAdmin && <Chip color={C.ac} sm>✓ Tamam</Chip>}
+                  {!rec   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.check(C.gn,13)} {tl.cameIn}</span>} v="ok" sz="s" onClick={() => doIn(w.id)} />}
+                  {isIn   && <Btn ch={<span style={{display:"flex",alignItems:"center",gap:4}}>{I.door(C.rd,13)} {tl.wentOut}</span>} v="dl" sz="s" onClick={() => doOut(w.id)} />}
+                  {done && !isAdmin && <Chip color={C.ac} sm>✓ {tl.doneShort}</Chip>}
                   {isAdmin && rec  && <Btn ch={I.edit(C.txS,13)} v="wn" sz="s" onClick={() => setEditRec(rec)} />}
                   {isAdmin && !rec && <Btn ch={I.plus(C.ac,14)} v="ot" sz="s" onClick={() => setEditRec({ id: uid(), wid: w.id, date: gToday(), check_in: "", check_out: null, edited: false, _new: true })} />}
                 </div>
@@ -2146,7 +2189,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                 <option value="all">{tl.allMonths}</option>
                 {months.map((m) => {
                   const [y, mo] = m.split("-");
-                  const mn = ["Ýanwar","Fewral","Mart","Aprel","Maý","Iýun","Iýul","Awgust","Sentýabr","Oktýabr","Noýabr","Dekabr"][+mo - 1];
+                  const mn = tl.months[+mo - 1];
                   return <option key={m} value={m}>{mn} {y}</option>;
                 })}
               </select>
@@ -2158,7 +2201,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 14 }}>
             {[
               { l: tl.totalDays,  v: hist.filter((a) => a.check_out).length, c: C.ac },
-              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + " sa", c: C.gn },
+              { l: tl.totalHours,v: (hist.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0) / 60).toFixed(1) + tl.hAbbr, c: C.gn },
               { l: tl.edits,  v: hist.filter((a) => a.edited).length, c: C.yw },
             ].map((s) => (
               <div key={s.l} style={{ background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 11, padding: "9px 13px", textAlign: "center" }}>
@@ -2194,7 +2237,7 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 4 }}>
                           <Chip color={late ? C.yw : C.gn} sm>{a.check_in}</Chip>
-                          {late && <Chip color={C.yw} sm>Giç</Chip>}
+                          {late && <Chip color={C.yw} sm>{tl.lateChip}</Chip>}
                         </div>
                       </td>
                       <td style={{ padding: "10px 12px" }}>{a.check_out ? <Chip color={C.rd} sm>{a.check_out}</Chip> : <span style={{ color: C.txM }}>{tl.atWork}</span>}</td>
@@ -2229,10 +2272,10 @@ function Attend({ workers, attend, setAttend, setWorkers, C, mob, cu, settings, 
               const { _new, ...clean } = r;
               try {
                 await sbFetch("attend", "POST", clean);
-                await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.check_out ? "öýde" : "işde" });
-                setAttend((p) => [...p, clean]);
+                if (clean.date === gToday()) await sbFetch(`workers?id=eq.${clean.wid}`, "PATCH", { status: clean.check_out ? "öýde" : "işde" });
+                setAttend((p) => p.find((x) => x.id === clean.id) ? p : [...p, clean]);
                 setWorkers((p) => p.map((w) => w.id === clean.wid && clean.date === gToday() ? { ...w, status: clean.check_out ? "öýde" : "işde" } : w));
-              } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+              } catch(e) { toast(tl.errorTitle, e.message, "err"); }
             } else {
               saveEdit(r);
             }
@@ -2291,22 +2334,22 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-        <div><Lbl t="Tabşyryk ady" C={C} /><Inp C={C} value={f.title} onChange={(e) => s("title", e.target.value)} placeholder={tl.taskNamePh} /></div>
-        <div><Lbl t="Düşündiriş" C={C} /><Txta C={C} value={f.desc} onChange={(e) => s("desc", e.target.value)} placeholder={tl.descPh} /></div>
+        <div><Lbl t={tl.taskName} C={C} /><Inp C={C} value={f.title} onChange={(e) => s("title", e.target.value)} placeholder={tl.taskNamePh} /></div>
+        <div><Lbl t={tl.description} C={C} /><Txta C={C} value={f.desc} onChange={(e) => s("desc", e.target.value)} placeholder={tl.descPh} /></div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
+        <div className="k-g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
           <div>
             <Lbl t={tl.worker} C={C} />
             {isI ? (
               <div style={{ padding: "9px 13px", background: C.sf, border: `1.5px solid ${C.bd}`, borderRadius: 11, fontSize: 13, color: C.tx }}>
-                {workers.find((w) => w.id === cu.wid) ? workers.find((w) => w.id === cu.wid).name : "Siz"}
+                {workers.find((w) => w.id === cu.wid) ? workers.find((w) => w.id === cu.wid).name : tl.youLabel}
               </div>
             ) : (
               <Sel C={C} value={f.who} onChange={(e) => s("who", e.target.value)} kids={workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)} />
             )}
           </div>
           <div>
-            <Lbl t="Dereje" C={C} />
+            <Lbl t={tl.priorityLabel} C={C} />
             <Sel C={C} value={f.pri} onChange={(e) => s("pri", e.target.value)} kids={[
               <option key="y" value="ýokary">🔴 {tl.high}</option>,
               <option key="o" value="orta">🟡 {tl.medium}</option>,
@@ -2315,9 +2358,9 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
+        <div className="k-g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
           <div>
-            <Lbl t="Sütün" C={C} />
+            <Lbl t={tl.columnLabel} C={C} />
             <Sel C={C} value={f.col} onChange={(e) => s("col", e.target.value)} kids={COLS.map((c) => <option key={c} value={c}>{getColLabel(c,tl)}</option>)} />
           </div>
           <div>
@@ -2331,14 +2374,14 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
               const today = new Date(); today.setHours(0,0,0,0);
               const dl = new Date(f.dl); dl.setHours(0,0,0,0);
               return dl < today ? (
-                <div style={{ fontSize: 11, color: C.yw, marginTop: 4, fontWeight: 700 }}>⚠️ Saýlanan sene geçdi!</div>
+                <div style={{ fontSize: 11, color: C.yw, marginTop: 4, fontWeight: 700 }}>{tl.dlPassed}</div>
               ) : null;
             })()}
           </div>
         </div>
 
         <div>
-          <Lbl t="Reňk" C={C} />
+          <Lbl t={tl.color} C={C} />
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
             {TKC.map((c) => (
               <div key={c} onClick={() => s("clr", c)} style={{ width: 25, height: 25, borderRadius: 7, background: c, cursor: "pointer", transition: "all .15s", border: f.clr === c ? "3px solid white" : "2px solid transparent", transform: f.clr === c ? "scale(1.25)" : "scale(1)", boxShadow: f.clr === c ? `0 0 10px ${c}88` : "none" }} />
@@ -2364,7 +2407,7 @@ function TaskForm({ task, workers, onSave, onClose, C, cu, tl }) {
                     <div style={{ fontSize:12, fontWeight:700, color:C.tx, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fl.name}</div>
                     <div style={{ fontSize:10, color:C.txM }}>{fmtSize(fl.size)}</div>
                   </div>
-                  <a href={getFileUrl(fl.path)} target="_blank" rel="noreferrer" style={{ color:C.ac, fontSize:11, fontWeight:700, textDecoration:"none" }}>⬇</a>
+                  <a href="#" onClick={(e) => { e.preventDefault(); openFile(fl.path); }} style={{ color:C.ac, fontSize:11, fontWeight:700, textDecoration:"none" }}>⬇</a>
                   <button type="button" onClick={() => removeFile(idx)} style={{ background:"none", border:"none", cursor:"pointer", color:C.rd, fontSize:14, fontWeight:700 }}>✕</button>
                 </div>
               ))}
@@ -2392,8 +2435,8 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
   const wi   = workers.findIndex((x) => x.id === task.who);
   const pm   = PM[task.pri] || PM.orta;
   const cmts = task.comments || [];
-  const isOv = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
-  const isDu = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
+  const isOv = task.dl && dDiff(task.dl, gToday()) < 0 && task.col !== "Tamamlandy";
+  const isDu = task.dl && task.dl === gToday() && task.col !== "Tamamlandy";
 
   const addCmt = () => {
     if (!cmt.trim()) return;
@@ -2408,8 +2451,8 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.tx, lineHeight: 1.3 }}>{task.title}</div>
           <div style={{ display: "flex", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
-            <Chip color={pm.c} sm>{pm.l}</Chip>
-            <Chip color={CM[task.col].c} sm>{task.col}</Chip>
+            <Chip color={pm.c} sm>{priName(task.pri, tl)}</Chip>
+            <Chip color={CM[task.col].c} sm>{getColLabel(task.col, tl)}</Chip>
             {task.dl && (
               <Chip color={isOv ? C.rd : isDu ? C.yw : C.txS} sm>
                 📅 {dlToTk(task.dl)}{isOv ? " ⚠️" : isDu ? " ⏰" : ""}
@@ -2430,7 +2473,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
           <div style={{ fontSize:12, fontWeight:700, color:C.txS, marginBottom:7 }}>📎 {tl.fileAttached} ({task.files.length})</div>
           <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
             {task.files.map((fl,idx) => (
-              <a key={idx} href={getFileUrl(fl.path)} target="_blank" rel="noreferrer"
+              <a key={idx} href="#" onClick={(e) => { e.preventDefault(); openFile(fl.path); }}
                 style={{ display:"flex", alignItems:"center", gap:9, padding:"8px 12px", background:C.sf, border:`1px solid ${C.bd}`, borderRadius:10, textDecoration:"none" }}>
                 <span style={{ fontSize:20 }}>{fileIcon(fl.ext)}</span>
                 <div style={{ flex:1, minWidth:0 }}>
@@ -2456,7 +2499,7 @@ function TaskDetail({ task, workers, cu, C, onSave, onClose, tl }) {
 
       {/* Bellikler */}
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.txS, marginBottom: 9 }}>💬 Bellikler ({cmts.length})</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.txS, marginBottom: 9 }}>{`💬 ${tl.comments} (${cmts.length})`}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 180, overflowY: "auto" }}>
           {cmts.length === 0 && <div style={{ color: C.txM, fontSize: 13, textAlign: "center", padding: "10px 0" }}>{tl.noComments}</div>}
           {cmts.map((c) => {
@@ -2490,8 +2533,8 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
   const w      = workers.find((x) => x.id === task.who);
   const wi     = workers.findIndex((x) => x.id === task.who);
   const pm     = PM[task.pri] || PM.orta;
-  const isOv   = task.dl && dDiff(dlToTk(task.dl), gToday()) < 0 && task.col !== "Tamamlandy";
-  const isDu   = task.dl && dlToTk(task.dl) === gToday() && task.col !== "Tamamlandy";
+  const isOv   = task.dl && dDiff(task.dl, gToday()) < 0 && task.col !== "Tamamlandy";
+  const isDu   = task.dl && task.dl === gToday() && task.col !== "Tamamlandy";
   const cmts   = (task.comments || []).length;
 
   return (
@@ -2500,8 +2543,8 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
         <div style={{ fontWeight: 700, fontSize: 14, color: C.tx, lineHeight: 1.4, cursor: "pointer" }} onClick={() => onDetail(task)}>{task.title}</div>
         {canEdit && (
           <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
-            <button onClick={() => onEdit(task)} style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${C.bd}`, background: C.cd, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.txS }}>{I.edit(C.txS,13)}</button>
-            {!isI && <button onClick={() => onDelete(task.id)} style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.rd }}>🗑</button>}
+            <button className="k-ib" onClick={() => onEdit(task)} style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${C.bd}`, background: C.cd, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.txS }}>{I.edit(C.txS,13)}</button>
+            {!isI && <button className="k-ib" onClick={() => onDelete(task.id)} style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.rd }}>🗑</button>}
           </div>
         )}
       </div>
@@ -2513,7 +2556,7 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
       )}
       {task.col === "Tamamlandy" && task.completed_at && (
         <div style={{ fontSize: 10, color: C.txM, marginBottom: 5 }}>
-          ✓ {dDiff(gToday(), task.completed_at) === 0 ? "Şu gün" : dDiff(gToday(), task.completed_at) + " gün öň"} tamamlandy
+          ✓ {dDiff(gToday(), task.completed_at) === 0 ? tl.taskDoneToday : tl.taskDoneAgo.replace("{n}", dDiff(gToday(), task.completed_at))}
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2524,14 +2567,14 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
         <div style={{ display: "flex", gap: 5, flexWrap:"wrap" }}>
           {cmts > 0 && <Chip color={C.txS} sm>💬{cmts}</Chip>}
           {(task.files||[]).length > 0 && <Chip color={C.ac} sm>📎{task.files.length}</Chip>}
-          <Chip color={pm.c} sm>{pm.l}</Chip>
+          <Chip color={pm.c} sm>{priName(task.pri, tl)}</Chip>
         </div>
       </div>
       {canEdit && (
         <div style={{ display: "flex", gap: 3, marginTop: 9, flexWrap: "wrap" }}>
           {COLS.filter((c) => c !== task.col).map((c) => (
-            <button key={c} onClick={() => onMove(task.id, c)} style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer", border: `1px solid ${CM[c].c}44`, background: CM[c].c + "11", color: CM[c].c }}>
-              → {c.split(" ")[0]}
+            <button key={c} className="k-mv" onClick={() => onMove(task.id, c)} style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer", border: `1px solid ${CM[c].c}44`, background: CM[c].c + "11", color: CM[c].c }}>
+              → {getColLabel(c, tl).split(" ")[0]}
             </button>
           ))}
         </div>
@@ -2540,7 +2583,7 @@ function KanbanCard({ task, workers, onEdit, onDelete, onMove, onDetail, C, cu, 
   );
 }
 
-function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
+function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl, settings }) {
   const isI = cu.role === "ishgar";
   const [modal,  setModal]  = useState(false);
   const [editT,  setEditT]  = useState(null);
@@ -2565,14 +2608,14 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
         setTasks(p => [...p, newTask]);
         toast(tl.taskCreated, t.title, "ok");
       }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
   const deleteTask = async (id) => {
     try {
       await sbFetch(`tasks?id=eq.${id}`, "DELETE");
       setTasks((p) => p.filter((t) => t.id !== id));
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
   const moveTask = async (id, col) => {
@@ -2585,12 +2628,12 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
       if (col === "Tamamlandy") {
         const days = settings?.taskArchiveDays ?? 7;
         toast(tl.completedToast, t ? t.title : "", "ok");
-        if (days > 0) toast("📦 Arhiw", `${days} günden soň awtomatik pozular`, "info");
+        if (days > 0) toast(tl.archiveToastTitle, tl.archiveToastMsg.replace("{days}", days), "info");
       }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
-  const overdue = vis.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy").length;
+  const overdue = vis.filter((t) => t.dl && dDiff(t.dl, gToday()) < 0 && t.col !== "Tamamlandy").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, animation: "kUp .35s" }}>
@@ -2610,7 +2653,7 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "repeat(4,1fr)", gap: 13, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "repeat(auto-fit,minmax(230px,1fr))", gap: 13, alignItems: "start" }}>
         {COLS.map((col) => {
           const ct   = vis.filter((t) => t.col === col);
           const meta = CM[col];
@@ -2658,7 +2701,7 @@ function Kanban({ tasks, setTasks, workers, C, mob, cu, toast, tl }) {
         try {
           await sbFetch(`tasks?id=eq.${t.id}`, "PATCH", { comments: t.comments||[] });
           setTasks((p) => p.map((x) => x.id === t.id ? t : x)); setDetailT(t);
-        } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+        } catch(e) { toast(tl.errorTitle, e.message, "err"); }
       }}
           onClose={() => setDetailT(null)}
         />
@@ -2721,32 +2764,47 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
         setWorkers(p => [...p, nw]);
         toast(tl.toastWorkerAdded, wF.name, "ok");
       }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
     setAvLoading(false);
     setWMod(false);
   };
 
   const openU = (u = null) => {
     setEU(u);
-    setUF(u ? { username: u.username, password: u.password, role: u.role, name: u.name, wid: u.wid || "" }
+    // Bar bolan parol (hash) hiç haçan forma öňünden dolduranok —
+    // diňe täze parol ýazylsa üýtgeýär.
+    setUF(u ? { username: u.username, password: "", role: u.role, name: u.name, wid: u.wid || "" }
              : { username: "", password: "", role: "ishgar", name: "", wid: "" });
     setUMod(true);
   };
   const saveU = async () => {
-    if (!uF.username.trim() || !uF.password.trim()) return;
+    if (!uF.username.trim() || !uF.name.trim()) return;
+    if (!eU && !uF.password.trim()) return; // täze ulanyjy üçin parol hökmany
     try {
+      const body = { username: uF.username.trim(), name: uF.name.trim(), role: uF.role, wid: uF.wid || null };
+      if (uF.password.trim()) body.password = uF.password.trim();
       if (eU) {
-        await sbFetch(`users?id=eq.${eU.id}`, "PATCH", { ...uF, wid: uF.wid || null });
-        setUsers((p) => p.map((u) => u.id === eU.id ? { ...u, ...uF, wid: uF.wid || null } : u));
+        const { profile } = await api("admin", { action: "update", id: eU.id, ...body });
+        setUsers((p) => p.map((u) => u.id === eU.id ? { ...u, ...profile } : u));
         toast(tl.toastUserUpdated, uF.name, "ok");
       } else {
-        const newU = { id: "u" + Date.now(), ...uF, wid: uF.wid || null };
-        await sbFetch("users", "POST", newU);
-        setUsers(p => [...p, newU]);
+        const { profile } = await api("admin", { action: "create", ...body });
+        setUsers((p) => p.find((x) => x.id === profile.id) ? p : [...p, profile]);
         toast(tl.toastUserAdded, uF.name, "ok");
       }
-    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
-    setUMod(false);
+      setUMod(false);
+    } catch (e) {
+      toast(tl.errorTitle, e.code === "USERNAME_TAKEN" ? tl.errUserExists : e.message, "err");
+    }
+  };
+
+  const delU = async (u) => {
+    if (u.id === cu.id) { toast(tl.errorTitle, tl.cantDeleteSelf, "err"); return; }
+    try {
+      await api("admin", { action: "delete", id: u.id });
+      setUsers((p) => p.filter((x) => x.id !== u.id));
+      toast(tl.toastUserDeleted, u.name, "info");
+    } catch (e) { toast(tl.errorTitle, e.message, "err"); }
   };
 
   return (
@@ -2755,7 +2813,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
         <STit icon={I.settings(C.txS,17)} t={tl.adminPanel} C={C} mb={0} />
         <div style={{ display: "flex", gap: 7 }}>
           <Chip color={RL.admin.c}>{`👑 ${tl.fullAccess}`}</Chip>
-          <Btn ch={<span style={{display:"flex",alignItems:"center",gap:6}}>{I.settings(C.ac,13)} Sazlamalar</span>} v="ot" sz="s" onClick={() => setSMod(true)} />
+          <Btn ch={<span style={{display:"flex",alignItems:"center",gap:6}}>{I.settings(C.ac,13)} {tl.settings}</span>} v="ot" sz="s" onClick={() => setSMod(true)} />
         </div>
       </div>
 
@@ -2793,12 +2851,12 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.tx }}>{w.name}</div>
                   <div style={{ fontSize: 12, color: C.txS, marginTop: 1 }}>{w.pos}{(() => { const d = depts.find(x => x.id === w.dept_id); return d ? <span style={{ marginLeft:6, fontSize:10, background:C.acG, color:C.ac, borderRadius:5, padding:"1px 6px", fontWeight:700 }}>🏢 {d.name}</span> : null; })()}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : "○ Işde däl"}</Chip>
+                    <Chip color={w.status === "işde" ? C.gn : C.txM} sm>{w.status === "işde" ? `● ${tl.inOffice}` : `○ ${tl.notAtWork}`}</Chip>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
                   <Btn ch={I.edit(C.txS,13)} v="ot" sz="s" onClick={() => openW(w)} />
-                  <Btn ch={I.trash(C.rd,13)} v="dl" sz="s" onClick={async () => { try { await sbFetch(`workers?id=eq.${w.id}`,"DELETE"); setWorkers((p) => p.filter((x) => x.id !== w.id)); toast(tl.toastWorkerDeleted, w.name, "info"); } catch(e) { toast("Ýalňyşlyk",e.message,"err"); } }} />
+                  <Btn ch={I.trash(C.rd,13)} v="dl" sz="s" onClick={async () => { try { await sbFetch(`workers?id=eq.${w.id}`,"DELETE"); setWorkers((p) => p.filter((x) => x.id !== w.id)); toast(tl.toastWorkerDeleted, w.name, "info"); } catch(e) { toast(tl.errorTitle,e.message,"err"); } }} />
                 </div>
               </div>
             ))}
@@ -2810,7 +2868,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
               <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
                 {/* Profil suraty */}
                 <div>
-                  <Lbl t="Profil suraty" C={C} />
+                  <Lbl t={tl.photoLabel} C={C} />
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ width: 56, height: 56, borderRadius: 16, overflow: "hidden", background: C.bd, flexShrink: 0, border: `1.5px solid ${C.bd}` }}>
                       {avPrev
@@ -2819,7 +2877,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       }
                     </div>
                     <label style={{ cursor: "pointer", padding: "7px 14px", borderRadius: 10, border: `1px solid ${C.bd}`, background: C.sf, color: C.tx, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                      📷 Surat saýla
+                      📷 {tl.pickPhoto}
                       <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
                         const f = e.target.files[0];
                         if (f) {
@@ -2847,7 +2905,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                 </div>
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <Btn ch={tl.cancel} v="gh" onClick={() => setWMod(false)} sx={{ color: C.txS }} />
-                  <Btn ch={avLoading ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.spinner("white",13)} Ýüklenýär...</span> : eW ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={saveW} disabled={avLoading} />
+                  <Btn ch={avLoading ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.spinner("white",13)} {tl.loadingDots}</span> : eW ? <span style={{display:"flex",alignItems:"center",gap:6}}>{I.save("white",14)} {tl.saveProfile}</span> : <span style={{display:"flex",alignItems:"center",gap:6}}>{I.plus("white",13)} {tl.create}</span>} onClick={saveW} disabled={avLoading} />
                 </div>
               </div>
             </Pop>
@@ -2876,13 +2934,12 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       @{u.username}{lw && <span style={{ marginLeft: 7, color: C.txM }}>→ {lw.name}</span>}
                     </div>
                     <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 7 }}>
-                      <RC role={u.role} />
-                      <span style={{ fontSize: 11, color: C.txM, background: C.sf, border: `1px solid ${C.bd}`, borderRadius: 7, padding: "2px 7px", fontFamily: "monospace" }}>🔑 {u.password}</span>
+                      <RC role={u.role} tl={tl} />
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
                     <Btn ch={I.edit(C.txS,13)} v="ot" sz="s" onClick={() => openU(u)} />
-                    <Btn ch={I.trash(C.rd,13)} v="dl" sz="s" onClick={async () => { try { await sbFetch(`users?id=eq.${u.id}`,"DELETE"); setUsers((p) => p.filter((x) => x.id !== u.id)); toast(tl.toastUserDeleted, u.name, "info"); } catch(e) { toast("Ýalňyşlyk",e.message,"err"); } }} />
+                    {u.id !== cu.id && <Btn ch={I.trash(C.rd,13)} v="dl" sz="s" onClick={() => delU(u)} />}
                   </div>
                 </div>
               );
@@ -2894,16 +2951,16 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
               <h3 style={{ fontSize: 17, fontWeight: 900, color: C.tx, marginBottom: 18 }}>{eU ? `✏️ ${tl.editUser}` : `➕ ${tl.newUser}`}</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
                 <div><Lbl t={tl.fullName} C={C} /><Inp C={C} value={uF.name} onChange={(e) => setUF((f) => ({ ...f, name: e.target.value }))} placeholder={tl.fullName} /></div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
+                <div className="k-g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
                   <div><Lbl t={tl.username} C={C} /><Inp C={C} value={uF.username} onChange={(e) => setUF((f) => ({ ...f, username: e.target.value }))} placeholder="username" /></div>
-                  <div><Lbl t={tl.password} C={C} /><Inp C={C} type="text" value={uF.password} onChange={(e) => setUF((f) => ({ ...f, password: e.target.value }))} placeholder="parol" /></div>
+                  <div><Lbl t={tl.password} C={C} /><Inp C={C} type="password" autoComplete="new-password" value={uF.password} onChange={(e) => setUF((f) => ({ ...f, password: e.target.value }))} placeholder={eU ? tl.pwKeepHint : tl.passwordPh} /></div>
                 </div>
                 <div>
-                  <Lbl t="Roly" C={C} />
+                  <Lbl t={tl.roleLabel} C={C} />
                   <Sel C={C} value={uF.role} onChange={(e) => setUF((f) => ({ ...f, role: e.target.value }))} kids={[
-                    <option key="a" value="admin">👑 Admin</option>,
-                    <option key="b" value="bashlik">👔 Başlyk</option>,
-                    <option key="i" value="ishgar">👷 Işgär</option>,
+                    <option key="a" value="admin">{`👑 ${tl.roleAdmin}`}</option>,
+                    <option key="b" value="bashlik">{`👔 ${tl.roleBashlik}`}</option>,
+                    <option key="i" value="ishgar">{`👷 ${tl.roleIshgar}`}</option>,
                   ]} />
                 </div>
                 <div>
@@ -2940,7 +2997,7 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                   <div style={{ width:44, height:44, borderRadius:13, flexShrink:0, background:C.acG, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🏢</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:900, fontSize:15, color:C.tx }}>{d.name}</div>
-                    <div style={{ fontSize:12, color:C.txS, marginTop:2 }}>{dw.length} işgär</div>
+                    <div style={{ fontSize:12, color:C.txS, marginTop:2 }}>{tl.nWorkers.replace("{n}", dw.length)}</div>
                     <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:5 }}>
                       {dw.slice(0,5).map((w,i) => <span key={w.id} style={{ fontSize:11, background:C.sf, border:`1px solid ${C.bd}`, borderRadius:6, padding:"2px 7px", color:C.tx }}>{w.name.split(" ")[0]}</span>)}
                       {dw.length > 5 && <span style={{ fontSize:11, color:C.txM }}>+{dw.length-5}</span>}
@@ -2952,8 +3009,8 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       try {
                         await sbFetch(`depts?id=eq.${d.id}`, "DELETE");
                         setDepts(p => p.filter(x => x.id !== d.id));
-                        toast("Bölüm pozuldy ✓", d.name, "info");
-                      } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+                        toast(tl.toastDeptDeleted, d.name, "info");
+                      } catch(e) { toast(tl.errorTitle, e.message, "err"); }
                     }} />
                   </div>
                 </div>
@@ -2974,15 +3031,15 @@ function Admin({ workers, setWorkers, users, setUsers, depts, setDepts, C, mob, 
                       if (eD) {
                         await sbFetch(`depts?id=eq.${eD.id}`, "PATCH", { name: dF.name });
                         setDepts(p => p.map(x => x.id === eD.id ? { ...x, name: dF.name } : x));
-                        toast("Bölüm täzelendi ✓", dF.name, "ok");
+                        toast(tl.toastDeptUpdated, dF.name, "ok");
                       } else {
                         const nd = { id: "d" + Date.now(), name: dF.name };
                         await sbFetch("depts", "POST", nd);
                         setDepts(p => [...p, nd]);
-                        toast("Bölüm goşuldy ✓", dF.name, "ok");
+                        toast(tl.toastDeptAdded, dF.name, "ok");
                       }
                       setDMod(false);
-                    } catch(e) { toast("Ýalňyşlyk", e.message, "err"); }
+                    } catch(e) { toast(tl.errorTitle, e.message, "err"); }
                   }} />
                 </div>
               </div>
@@ -3013,7 +3070,7 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 
   const totMin = attend.filter((a) => a.check_out).reduce((s, a) => s + (tMin(a.check_out) - tMin(a.check_in)), 0);
   const top = [
-    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + " sa", ic: I.time(C.ac,24), c: C.ac },
+    { l: tl.totalHours,  v: (totMin / 60).toFixed(1) + tl.hAbbr, ic: I.time(C.ac,24), c: C.ac },
     { l: tl.daysCount,  v: attend.filter((a) => a.check_out).length,            ic: I.calendar(C.gn,24), c: C.gn },
     { l: tl.done,  v: tasks.filter((t) => t.col === "Tamamlandy").length, ic: I.check(C.pu,22), c: C.pu },
     { l: tl.workers,    v: workers.length,                                ic: I.workers(C.gn,22), c: C.yw },
@@ -3021,17 +3078,17 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
 
   // PDF export
   const exportPDF = () => {
-    const date = new Date().toLocaleDateString("tk-TM");
+    const date = fmtDate(gToday());
     const rows = ws.map(w => {
       const eff = w.tasks > 0 ? Math.round(w.done/w.tasks*100) : 0;
       return `<tr>
         <td>${w.name}</td><td>${w.pos||"—"}</td>
-        <td>${w.days}</td><td>${w.hours}s</td>
+        <td>${w.days}</td><td>${w.hours}${tl.hAbbr}</td>
         <td>${w.late}</td><td>${w.tasks}</td><td>${w.done}</td><td>${eff}%</td>
       </tr>`;
     }).join("");
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-    <title>Hasabat — ${date}</title>
+    <title>${tl.reportDocTitle} — ${date}</title>
     <style>
       body{font-family:Arial,sans-serif;padding:28px;color:#1a2540;font-size:13px}
       h1{font-size:22px;margin-bottom:4px;color:#4B6EF5}
@@ -3046,11 +3103,11 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
       tr:nth-child(even) td{background:#f9f9ff}
       @media print{body{padding:10px}}
     </style></head><body>
-    <h1>📊 Komekchi — Hasabat</h1>
-    <div class="sub">Döredilen: ${date}</div>
+    <h1>📊 ${tl.reportDocTitle}</h1>
+    <div class="sub">${tl.createdOn}: ${date}</div>
     <div class="stats">
       <div class="stat"><div class="v">${workers.length}</div><div class="l">${tl.workers}</div></div>
-      <div class="stat"><div class="v">${(totMin/60).toFixed(1)}s</div><div class="l">${tl.totalHours}</div></div>
+      <div class="stat"><div class="v">${(totMin/60).toFixed(1)}${tl.hAbbr}</div><div class="l">${tl.totalHours}</div></div>
       <div class="stat"><div class="v">${attend.filter(a=>a.check_out).length}</div><div class="l">${tl.daysCount}</div></div>
       <div class="stat"><div class="v">${tasks.filter(t=>t.col==="Tamamlandy").length}</div><div class="l">${tl.done}</div></div>
     </div>
@@ -3104,7 +3161,7 @@ function Reports({ workers, tasks, attend, C, mob, cu, settings, tl }) {
                     </td>
                     <td style={{ padding: "11px 12px", color: C.txS }}>{w.pos}</td>
                     <td style={{ padding: "11px 12px" }}><Chip color={C.ac} sm>{w.days}</Chip></td>
-                    <td style={{ padding: "11px 12px", color: C.tx }}>{w.hours}s</td>
+                    <td style={{ padding: "11px 12px", color: C.tx }}>{w.hours}{tl.hAbbr}</td>
                     <td style={{ padding: "11px 12px" }}>{w.late > 0 ? <Chip color={C.yw} sm>⚠️ {w.late}</Chip> : <span style={{ color: C.gn, fontSize: 12 }}>✓</span>}</td>
                     <td style={{ padding: "11px 12px", color: C.tx }}>{w.tasks}</td>
                     <td style={{ padding: "11px 12px" }}><Chip color={C.gn} sm>{w.done}</Chip></td>
@@ -3141,7 +3198,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   const [msgs, setMsgsRaw] = useState(() => {
     const saved = LS.get(chatKey, null);
     if (saved && Array.isArray(saved) && saved.length > 0) return saved;
-    return [{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Men Kömekçiniň AI kömekçisi. Size nähili kömek edip bilerin? ✨` }];
+    return [{ role: "assistant", content: `${tl.aiGreet}, ${cu.name.split(" ")[0]}! ${tl.aiGreetMsg} ✨` }];
   });
   const [inp,  setInp]  = useState("");
   const [load, setLoad] = useState(false);
@@ -3157,7 +3214,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
   };
 
   const clearChat = () => {
-    const fresh = [{ role: "assistant", content: `Salam, ${cu.name.split(" ")[0]}! Söhbet täzelendi. Nähili kömek edip bilerin? ✨` }];
+    const fresh = [{ role: "assistant", content: `${tl.aiGreet}, ${cu.name.split(" ")[0]}! ${tl.aiResetMsg} ✨` }];
     setMsgsRaw(fresh);
     LS.set(chatKey, fresh);
   };
@@ -3167,8 +3224,8 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     : [tl.aiQWho, tl.aiQOverdue, tl.aiQPerf, tl.aiQAdvice];
 
   const today = gToday();
-  const overdueTasks = tasks.filter(t => t.dl && dDiff(dlToTk(t.dl), today) < 0 && t.col !== "Tamamlandy");
-  const dueTodayCount = tasks.filter(t => t.dl && dlToTk(t.dl) === today && t.col !== "Tamamlandy").length;
+  const overdueTasks = tasks.filter(t => t.dl && dDiff(t.dl, today) < 0 && t.col !== "Tamamlandy");
+  const dueTodayCount = tasks.filter(t => t.dl && t.dl === today && t.col !== "Tamamlandy").length;
   const inWorkNow = workers.filter(w => w.status === "işde");
 
   const langInstr = {
@@ -3177,7 +3234,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     en: `Reply ONLY in ENGLISH:\n- Correct grammar\n- 2-4 sentences\n- Use **bold** and lists when helpful`,
   };
 
-  const roleLabel = cu.role === "admin" ? "Admin" : cu.role === "bashlik" ? "Başlyk" : "Işgär";
+  const roleLabel = roleName(cu.role, tl);
 
   const overdueDetail = overdueTasks.slice(0,5).map(t => {
     const w = workers.find(x => x.id === t.who);
@@ -3199,7 +3256,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     "",
     isI
       ? `Meniň tabşyryklam (${myT.length} sany):\n` +
-        (myT.map(t => `  • ${t.title} [${t.col}]${t.dl ? " — " + dlToTk(t.dl) : ""}${t.dl && dDiff(dlToTk(t.dl), today) < 0 && t.col !== "Tamamlandy" ? " ⚠️ GEÇDI" : ""}`).join("\n") || "  Tabşyryk ýok")
+        (myT.map(t => `  • ${t.title} [${t.col}]${t.dl ? " — " + dlToTk(t.dl) : ""}${t.dl && dDiff(t.dl, today) < 0 && t.col !== "Tamamlandy" ? " ⚠️ GEÇDI" : ""}`).join("\n") || "  Tabşyryk ýok")
       : `Edara ýagdaýy:\n` +
         `  • Işgärler: ${workers.length} (işde: ${inWorkNow.length} — ${inWorkNow.map(w=>w.name).join(", ")||"ýok"})\n` +
         `  • Tabşyryklar: Etmeli=${tasks.filter(t=>t.col==="Etmeli").length} | Dowam=${tasks.filter(t=>t.col==="Dowam edýär").length} | Barlag=${tasks.filter(t=>t.col==="Barlag").length} | Tamam=${tasks.filter(t=>t.col==="Tamamlandy").length}\n` +
@@ -3218,23 +3275,17 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
     setMsgs(history);
     setLoad(true);
     try {
-      const r = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system: sysPrompt,
-          messages: history.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
-        }),
+      const d = await api("ai", {
+        system: sysPrompt,
+        messages: history.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content })),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error || "HTTP " + r.status);
       const answer = d?.text;
-      if (!answer) throw new Error("Boş jogap");
+      if (!answer) throw new Error(tl.emptyReply);
       setMsgs(p => [...p, { role: "assistant", content: answer }]);
     } catch (e) {
       setMsgs(p => [...p, {
         role: "assistant",
-        content: `⚠️ Ýalňyşlyk: ${e.message}\n\nVercel → Settings → Environment Variables → **GROQ_KEY** barlaň.`,
+        content: `⚠️ ${tl.aiError}: ${e.message}\n\n${tl.aiErrHint}`,
       }]);
     }
     setLoad(false);
@@ -3247,7 +3298,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: mob ? 0 : "20px 24px", backdropFilter: "blur(6px)", animation: "kIn .2s" }}
     >
-      <div style={{ width: mob ? "100%" : "min(440px,96vw)", height: mob ? "88vh" : "min(600px,90vh)", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
+      <div className="k-z" style={{ width: mob ? "100%" : "min(440px,96vw)", height: mob ? "88dvh" : "min(600px,calc(90dvh / var(--kz, 1)))", background: C.cd, border: `1px solid ${C.bd}`, borderRadius: mob ? "22px 22px 0 0" : "20px", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: C.sh, animation: mob ? "kSl .3s" : "kUp .25s" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, background: `linear-gradient(135deg,${C.pu}18,${C.ac}0A)`, display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg,${C.pu},${C.ac})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 14px ${C.pu}55` }}>{I.robot("white",20)}</div>
           <div style={{ flex: 1 }}>
@@ -3257,7 +3308,7 @@ function AIPanel({ workers, tasks, attend, onClose, C, mob, cu, tl, lang }) {
               <span style={{ fontWeight: 700 }}>{tl.aiActive}</span>
             </div>
           </div>
-          <button onClick={clearChat} title="Söhbeti arassala" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, marginRight: 4 }}>🗑</button>
+          <button onClick={clearChat} title={tl.clearChat} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, marginRight: 4 }}>🗑</button>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 9, border: `1px solid ${C.bd}`, background: C.sf, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.txS, fontSize: 14, fontWeight: 700 }}>✕</button>
         </div>
         <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.bdS}`, display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -3357,75 +3408,113 @@ export default function App() {
   const [loading,  setLoading]  = useState(true);
 
   const mob = useMob();
+  const narrow = useNarrow();
   const { ts, add: toast, rm } = useToast();
+  TL = tl;
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
-  // ── Supabase-den maglumatlary ýükle ─────────────────────────
-  useEffect(() => {
-    async function loadAll() {
-      try {
-        const [w, t, a, u, s, d] = await Promise.all([
-          sbFetch("workers?order=created_at"),
-          sbFetch("tasks?order=created_at"),
-          sbFetch("attend?order=created_at"),
-          sbFetch("users?order=created_at"),
-          sbFetch("settings?id=eq.1"),
-          sbFetch("depts?order=created_at"),
-        ]);
-        setWorkers(w || []);
-        setTasks((t || []).map(x => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] })));
-        //setAttend(a || []);
-        setUsers(u || []);
-        setDepts(d || []);
-        if (s && s[0]) {
-          setSettings({ workStart: s[0].work_start, workEnd: s[0].work_end, lateLimit: s[0].late_limit, taskArchiveDays: s[0].task_archive_days ?? 7 });
-        }
-      } catch(e) {
-        toast("Supabase ýalňyşlygy", e.message, "err");
-      } finally {
-        setLoading(false);
-      }
+  const mapTask = (x) => ({ ...x, desc: x.description || "", comments: x.comments || [], files: x.files || [] });
+  const mapSettings = (s) => ({ workStart: s.work_start, workEnd: s.work_end, lateLimit: s.late_limit, taskArchiveDays: s.task_archive_days ?? 7 });
+  const resetData = () => { setWorkers([]); setTasks([]); setDepts([]); setAttend([]); setUsers([]); setSettings(DEF_SETTINGS); };
+
+  // ── Sessiýa bar bolsa: profil + maglumatlary ýükle. Rol RLS arkaly serwerde çäklendirilýär ──
+  const enter = useCallback(async () => {
+    try {
+      const { data } = await sb.auth.getSession();
+      const userId = data?.session?.user?.id;
+      if (!userId) return false;
+      const prof = await sbFetch(`profiles?id=eq.${userId}`);
+      const p = prof && prof[0];
+      if (!p) { await sb.auth.signOut(); return false; }
+
+      let archived = 0; // tamamlanan tabşyryklary arhiwden aýyrmak (serwerde)
+      try { archived = (await sbFetch("rpc/archive_completed_tasks", "POST", {})) || 0; } catch {}
+
+      const adm = p.role === "admin";
+      const [w, t, a, d, s, u] = await Promise.all([
+        sbAll("workers?order=created_at"),
+        sbAll("tasks?order=created_at"),
+        sbAll("attend?order=created_at"),
+        sbAll("depts?order=created_at"),
+        sbFetch("settings?id=eq.1"),
+        adm ? sbAll("profiles?order=created_at") : Promise.resolve([p]),
+      ]);
+      setWorkers(w); setTasks(t.map(mapTask)); setAttend(a); setDepts(d); setUsers(u);
+      if (s && s[0]) setSettings(mapSettings(s[0]));
+      setCu(p); setTab("d");
+      if (archived > 0) toast(TL.archivedN.replace("{n}", archived), "", "info");
+      return true;
+    } catch (e) {
+      toast(TL.errorTitle, e.message, "err");
+      return false;
     }
-    loadAll();
-  }, []);
+  }, []); // eslint-disable-line
 
-  // ── Real-time subscriptions ──────────────────────────────────
   useEffect(() => {
+    let alive = true;
+    (async () => { await enter(); if (alive) setLoading(false); })();
+    const { data } = sb.auth.onAuthStateChange((ev) => {
+      if (ev === "SIGNED_OUT") { setCu(null); resetData(); setAiOpen(false); setProfOpen(false); }
+    });
+    return () => { alive = false; data.subscription.unsubscribe(); };
+  }, []); // eslint-disable-line
+
+  const doLogout = async () => { await sb.auth.signOut(); setCu(null); resetData(); setAiOpen(false); setProfOpen(false); };
+
+  // Ýalňyşlyklar (mysal faýl açylmady)
+  useEffect(() => {
+    const h = (e) => toast(tl.errorTitle, e.detail, "err");
+    window.addEventListener("k-err", h);
+    return () => window.removeEventListener("k-err", h);
+  }, [tl]); // eslint-disable-line
+
+  // ── Real-time — diňe giriş edeninden soň (token bilen), RLS her rola özüne degişlini iberýär ──
+  useEffect(() => {
+    if (!cu?.id) return;
+    const myId = cu.id;
     const unsubs = [
       sbSubscribe("workers", (ev, rec, old) => {
-        if (!rec && ev !== "DELETE") return;
         if (ev === "INSERT") setWorkers(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setWorkers(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== (old?.id || rec?.id)));
+        if (ev === "DELETE") setWorkers(p => p.filter(x => x.id !== old?.id));
       }),
       sbSubscribe("tasks", (ev, rec, old) => {
-        if (!rec && ev !== "DELETE") return;
-        const r = rec ? { ...rec, desc: rec.description || "", comments: rec.comments || [], files: rec.files || [] } : rec;
-        // INSERT: real-time arkaly gelýär — eger eýýäm bar bolsa goşma (double)
-        if (ev === "INSERT") setTasks(p => p.find(x => x.id === r.id) ? p : [...p, r]);
-        if (ev === "UPDATE") setTasks(p => p.map(x => x.id === r.id ? r : x));
-        if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== (old?.id || rec?.id)));
+        if (ev === "INSERT") { const r = mapTask(rec); setTasks(p => p.find(x => x.id === r.id) ? p : [...p, r]); }
+        if (ev === "UPDATE") { const r = mapTask(rec); setTasks(p => p.some(x => x.id === r.id) ? p.map(x => x.id === r.id ? r : x) : [...p, r]); }
+        if (ev === "DELETE") setTasks(p => p.filter(x => x.id !== old?.id));
       }),
       sbSubscribe("attend", (ev, rec, old) => {
-        if (!rec && ev !== "DELETE") return;
         if (ev === "INSERT") setAttend(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
-        if (ev === "UPDATE") setAttend(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setAttend(p => p.filter(x => x.id !== (old?.id || rec?.id)));
-      }),
-      sbSubscribe("users", (ev, rec, old) => {
-        if (!rec && ev !== "DELETE") return;
-        if (ev === "INSERT") setUsers(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
-        if (ev === "UPDATE") setUsers(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setUsers(p => p.filter(x => x.id !== (old?.id || rec?.id)));
+        if (ev === "UPDATE") setAttend(p => p.some(x => x.id === rec.id) ? p.map(x => x.id === rec.id ? rec : x) : [...p, rec]);
+        if (ev === "DELETE") setAttend(p => p.filter(x => x.id !== old?.id));
       }),
       sbSubscribe("depts", (ev, rec, old) => {
-        if (!rec && ev !== "DELETE") return;
         if (ev === "INSERT") setDepts(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
         if (ev === "UPDATE") setDepts(p => p.map(x => x.id === rec.id ? rec : x));
-        if (ev === "DELETE") setDepts(p => p.filter(x => x.id !== (old?.id || rec?.id)));
+        if (ev === "DELETE") setDepts(p => p.filter(x => x.id !== old?.id));
+      }),
+      sbSubscribe("settings", (ev, rec) => { if (rec && rec.id === 1) setSettings(mapSettings(rec)); }),
+      sbSubscribe("profiles", (ev, rec, old) => {
+        if (ev === "DELETE") {
+          setUsers(p => p.filter(x => x.id !== old?.id));
+          if (old?.id === myId) doLogout();           // admin hasabymy pozdy
+          return;
+        }
+        if (!rec) return;
+        if (ev === "INSERT") setUsers(p => p.find(x => x.id === rec.id) ? p : [...p, rec]);
+        if (ev === "UPDATE") {
+          setUsers(p => p.some(x => x.id === rec.id) ? p.map(x => x.id === rec.id ? rec : x) : [...p, rec]);
+          if (rec.id === myId) setCu(c => ({ ...c, ...rec }));   // rol/işgär üýtgedilse dessine täzelenýär
+        }
       }),
     ];
     return () => unsubs.forEach(fn => fn());
-  }, []);
+  }, [cu?.id]); // eslint-disable-line
+
+  // Rol üýtgänsoň, rugsady ýok bölümde galmasyn
+  useEffect(() => {
+    if (cu && !getTabs(cu, tl).some(t => t.id === tab)) setTab("d");
+  }, [cu?.role, tab]); // eslint-disable-line
 
   // Tema localStorage-da saklanýar
   useEffect(() => LS.set("k_dark", dark), [dark]);
@@ -3436,67 +3525,40 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-
-  // Tamamlanan tabşyryklary awtomatik poz (diňe admin, her renderda)
+  // Möhlet geçen tabşyryklary barlaýar + push bildiriş iberýär (giriş edeninde bir gezek)
   useEffect(() => {
-    if (!cu || cu.role !== "admin") return;
-    const days = settings?.taskArchiveDays ?? 7;
-    if (!days || days <= 0) return;
-    const expired = tasks.filter(t =>
-      t.col === "Tamamlandy" && t.completed_at &&
-      dDiff(gToday(), t.completed_at) >= days
-    );
-    if (!expired.length) return;
-    expired.forEach(async t => {
-      try {
-        await sbFetch(`tasks?id=eq.${t.id}`, "DELETE");
-        setTasks(p => p.filter(x => x.id !== t.id));
-      } catch {}
-    });
-    toast(`${expired.length} tamamlanan tabşyryk arhiwden pozuldy`, "", "info");
-  }, [tasks.length, settings?.taskArchiveDays, cu?.role]);
-
-  // Möhlet geçen tabşyryklary barlaýar + push bildiriş iberýär
-  useEffect(() => {
-    if (!cu) return;
-    const od = tasks.filter((t) => t.dl && dDiff(dlToTk(t.dl), gToday()) < 0 && t.col !== "Tamamlandy");
-    if (od.length > 0) {
-      toast(`${od.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
-      // Browser push bildirişi
+    if (!cu?.id || loading) return;
+    const od = tasks.filter((t) => t.dl && dDiff(t.dl, gToday()) < 0 && t.col !== "Tamamlandy");
+    const mine = cu.role === "ishgar" ? od.filter(t => t.who === cu.wid) : od;
+    if (mine.length > 0) {
+      toast(`${mine.length} ${tl.toastOverdue}`, tl.toastOverdueSub, "info");
       if ("Notification" in window && Notification.permission === "granted") {
-        try {
-          new Notification("⚠️ Komekchi", {
-            body: `${od.length} tabşyrykda möhlet geçdi! Tabşyryklar bölümine baryň.`,
-            icon: "/favicon.ico",
-          });
-        } catch {}
+        try { new Notification("⚠️ Komekchi", { body: tl.overdueNotif.replace("{n}", mine.length), icon: "/favicon.ico" }); } catch {}
       }
     }
-  }, [cu]); // eslint-disable-line
+  }, [cu?.id, loading]); // eslint-disable-line
 
   // Push bildiriş rugsadyny soramak (giriş edensoň)
   useEffect(() => {
     if (!cu) return;
     if ("Notification" in window && Notification.permission === "default") {
-      setTimeout(() => {
-        Notification.requestPermission().catch(() => {});
-      }, 3000);
+      setTimeout(() => { Notification.requestPermission().catch(() => {}); }, 3000);
     }
   }, [cu?.id]); // eslint-disable-line
 
   // Loading ekrany
   if (loading) return (
-    <div style={{ minHeight:"100vh", background: C.bg, display:"flex", flexDirection:"column",
+    <div style={{ minHeight:"100dvh", background: C.bg, display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:16, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
       <div style={{ animation:"kGl 2s infinite" }}><LogoIcon size={64}/></div>
       <LogoText size={28} C={C} center={true}/>
       <div style={{ display:"flex", alignItems:"center", gap:8, color:C.txS, fontSize:14 }}>
-        {I.spinner(C.ac, 20)} <span>Ýüklenýär...</span>
+        {I.spinner(C.ac, 20)} <span>{tl.appLoading}</span>
       </div>
     </div>
   );
 
-  const normUsers   = users.map((u) => ({ ...u, wid: u.wid || u.workerId || null }));
+  const normUsers   = users;
   // Başlyk — diňe öz bölüminiň işgärlerini görýär
   const cuWorker    = workers.find(w => w.id === cu?.wid);
   const normWorkers = (cu?.role === "bashlik" && cuWorker?.dept_id)
@@ -3515,8 +3577,7 @@ export default function App() {
     return (
       <>
         <Login
-          users={normUsers}
-          onLogin={(u) => { setCu({ ...u, wid: u.wid || u.workerId || null }); setTab("d"); }}
+          onLogin={enter}
           C={C} dark={dark} setDark={setDark} tl={tl} lang={lang} setL={setL}
         />
         <Toast ts={ts} rm={rm} C={C} />
@@ -3528,10 +3589,10 @@ export default function App() {
   const tabs = getTabs(cu, tl);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.tx, fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif", display: "flex", flexDirection: "column", transition: "background .3s,color .3s" }}>
+    <div style={{ minHeight: "100dvh", background: C.bg, color: C.tx, fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif", display: "flex", flexDirection: "column", transition: "background .3s,color .3s" }}>
 
       {/* ─── HEADER ─── */}
-      <header style={{ background: C.sf, borderBottom: `1px solid ${C.bd}`, padding: mob ? "0 13px" : "0 26px", height: mob ? 54 : 62, position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(14px)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <header className="k-z k-head" style={{ background: C.sf, borderBottom: `1px solid ${C.bd}`, padding: mob ? "0 13px" : "0 26px", height: mob ? 54 : 62, position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(14px)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <LogoIcon size={36}/>
@@ -3543,10 +3604,10 @@ export default function App() {
 
         {/* Desktop nawigasiýa */}
         {!mob && (
-          <nav style={{ display: "flex", gap: 2 }}>
+          <nav style={{ display: "flex", gap: 2, minWidth: 0 }}>
             {tabs.map((t) => (
-              <button key={t.id} className="kn" onClick={() => setTab(t.id)} style={{ padding: "6px 14px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, transition: "all .15s", background: tab === t.id ? C.acG : "transparent", color: tab === t.id ? C.ac : C.txS, display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{display:"flex"}}>{t.ic(tab===t.id ? C.ac : C.txS, 16)}</span><span>{t.l}</span>
+              <button key={t.id} className="kn" title={t.l} onClick={() => setTab(t.id)} style={{ padding: narrow ? "8px 11px" : "6px 14px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, transition: "all .15s", background: tab === t.id ? C.acG : "transparent", color: tab === t.id ? C.ac : C.txS, display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{display:"flex"}}>{t.ic(tab===t.id ? C.ac : C.txS, 16)}</span>{!narrow && <span>{t.l}</span>}
               </button>
             ))}
           </nav>
@@ -3555,7 +3616,7 @@ export default function App() {
         {/* Sag tarap düwmeleri */}
         <div style={{ display: "flex", alignItems: "center", gap: mob ? 3 : 7 }}>
           {/* Sagat — diňe desktop */}
-          {!mob && (
+          {!mob && !narrow && (
             <div style={{ fontSize: 12, color: C.txS, fontVariantNumeric: "tabular-nums", background: C.cd, padding: "4px 12px", borderRadius: 18, border: `1px solid ${C.bd}` }}>🕐 {time}</div>
           )}
 
@@ -3565,13 +3626,13 @@ export default function App() {
           {/* Profil düwmesi */}
           <button onClick={() => setProfOpen(true)} className="kb" style={{ display: "flex", alignItems: "center", gap: 6, background: C.cd, border: `1.5px solid ${role.c}44`, borderRadius: 11, padding: mob ? "4px 6px" : "5px 11px", cursor: "pointer" }}>
             <span style={{display:"flex"}}>{role.ic(role.c, 16)}</span>
-            {!mob && <span style={{ fontSize: 12, fontWeight: 800, color: C.tx }}>{cu.name.split(" ")[0]}</span>}
+            {!mob && !narrow && <span style={{ fontSize: 12, fontWeight: 800, color: C.tx }}>{cu.name.split(" ")[0]}</span>}
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: role.c, display: "inline-block", boxShadow: `0 0 6px ${role.c}` }} />
           </button>
 
           {/* AI düwmesi — hemişe görünýär */}
-          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: mob ? 30 : "auto", height: mob ? 30 : "auto", padding: mob ? "0" : "7px 14px", borderRadius: mob ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
-            {mob ? I.robot("white",17) : <span style={{display:"flex",alignItems:"center",gap:5}}>{I.robot("white",16)} AI</span>}
+          <button onClick={() => setAiOpen(true)} className="kb" style={{ width: (mob || narrow) ? 32 : "auto", height: (mob || narrow) ? 32 : "auto", padding: (mob || narrow) ? "0" : "7px 14px", borderRadius: (mob || narrow) ? "50%" : 11, border: "none", cursor: "pointer", background: `linear-gradient(135deg,${C.pu},${C.ac})`, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, boxShadow: `0 4px 14px ${C.ac}44`, animation: "kGl 2.5s infinite" }}>
+            {(mob || narrow) ? I.robot("white",17) : <span style={{display:"flex",alignItems:"center",gap:5}}>{I.robot("white",16)} AI</span>}
           </button>
 
           {/* Tema — hemişe görünýär */}
@@ -3580,15 +3641,20 @@ export default function App() {
           </button>
 
           {/* Çykyş — hemişe görünýär */}
-          <button onClick={() => setCu(null)} className="kb" title={tl.exit} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
+          <button onClick={doLogout} className="kb" title={tl.logout} style={{ width: mob?28:34, height: mob?28:34, borderRadius: 10, border: `1px solid ${C.rd}44`, background: C.rdS, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{I.door(C.rd,15)}</button>
         </div>
       </header>
 
       {/* ─── MAIN MAZMUNY ─── */}
-      <main style={{ flex: 1, padding: mob ? "14px 13px 80px" : "26px", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <main className="k-z k-main" style={{ flex: 1, padding: mob ? "14px 13px 90px" : narrow ? "18px" : "26px", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        {cu.role !== "admin" && !cu.wid && (
+          <div style={{ background: C.ywS, border: `1px solid ${C.yw}55`, borderRadius: 12, padding: "10px 14px", marginBottom: 14, fontSize: 13, fontWeight: 700, color: C.yw }}>
+            {`⚠️ ${tl.noWorkerLink}`}
+          </div>
+        )}
         {tab === "d"   && <Dash     tl={tl} workers={normWorkers} tasks={normTasks} depts={depts} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
         {tab === "a"   && <Attend   tl={tl} workers={normWorkers} attend={attend} setAttend={setAttend} setWorkers={setWorkers} C={C} mob={mob} cu={cu} settings={settings} toast={toast} />}
-        {tab === "k"   && <Kanban   tl={tl} tasks={normTasks} setTasks={setTasks} workers={normWorkers} C={C} mob={mob} cu={cu} toast={toast} />}
+        {tab === "k"   && <Kanban   tl={tl} tasks={normTasks} setTasks={setTasks} workers={normWorkers} C={C} mob={mob} cu={cu} toast={toast} settings={settings} />}
         {tab === "adm" && <Admin    tl={tl} workers={normWorkers} setWorkers={setWorkers} users={normUsers} setUsers={setUsers} depts={depts} setDepts={setDepts} C={C} mob={mob} cu={cu} settings={settings} setSettings={setSettings} toast={toast} />}
         {tab === "r"   && <Reports  tl={tl} workers={normWorkers} tasks={normTasks} attend={attend} C={C} mob={mob} cu={cu} settings={settings} />}
       </main>
@@ -3597,13 +3663,13 @@ export default function App() {
       {mob && <BottomNav tl={tl} tab={tab} setTab={setTab} C={C} cu={cu} />}
 
       {/* Desktop AI düwmesi */}
-      {!mob && !aiOpen && (
+      {!mob && !narrow && !aiOpen && (
         <button onClick={() => setAiOpen(true)} className="kb" style={{ position: "fixed", bottom: 26, right: 26, width: 54, height: 54, borderRadius: "50%", border: "none", cursor: "pointer", fontSize: 24, zIndex: 150, background: `linear-gradient(135deg,${C.pu},${C.ac})`, boxShadow: `0 6px 22px ${C.pu}66`, animation: "kGl 2.5s infinite" }}>{I.robot("white",24)}</button>
       )}
 
       {/* Modallar */}
       {aiOpen   && <AIPanel   tl={tl} lang={lang} workers={normWorkers} tasks={normTasks} attend={attend} onClose={() => setAiOpen(false)} C={C} mob={mob} cu={cu} />}
-      {profOpen && <Profile   tl={tl} cu={cu} users={normUsers} setUsers={setUsers} setCu={(u) => setCu({ ...u, wid: u.wid || u.workerId || null })} C={C} onClose={() => setProfOpen(false)} toast={toast} />}
+      {profOpen && <Profile   tl={tl} cu={cu} users={normUsers} setUsers={setUsers} setCu={(u) => setCu(u)} C={C} onClose={() => setProfOpen(false)} toast={toast} />}
 
       {/* Bildirişler */}
       <Toast ts={ts} rm={rm} C={C} />

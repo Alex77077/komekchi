@@ -1,54 +1,32 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Yerli dev: GROQ_KEY .env-den okalýar (VITE_ yok → brauzera gideñok)
-// Vercel: Settings → Environment Variables → GROQ_KEY
-
+// Ýerli dev: /api/* soraglaryny Vercel funksiýalary ýaly işledýär (api/ai.js, api/admin.js).
+// Açarlar .env-den okalýar (SERVICE_ROLE / GROQ_KEY — VITE_ prefiksi ÝOK → brauzere gitmeýär).
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '') // ahli env (VITE_-siz hem)
+  const env = loadEnv(mode, process.cwd(), '')
+  Object.assign(process.env, env)
 
   return {
     plugins: [
       react(),
       {
-        name: 'local-groq-proxy',
+        name: 'local-api',
         configureServer(server) {
-          server.middlewares.use('/api/ai', async (req, res) => {
-            if (req.method !== 'POST') {
-              res.statusCode = 405
-              return res.end(JSON.stringify({ error: 'Dine POST' }))
-            }
-            let body = ''
-            req.on('data', c => (body += c))
+          server.middlewares.use(async (req, res, next) => {
+            const m = req.url && req.url.match(/^\/api\/([a-z-]+)(\?.*)?$/)
+            if (!m || m[1].startsWith('_')) return next()
+            let raw = ''
+            req.on('data', (c) => (raw += c))
             req.on('end', async () => {
               try {
-                const { system, messages } = JSON.parse(body)
-                const GROQ_KEY = env.GROQ_KEY
-                if (!GROQ_KEY) throw new Error('.env-de GROQ_KEY yok!')
-
-                const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + GROQ_KEY,
-                  },
-                  body: JSON.stringify({
-                    model: 'llama-3.3-70b-versatile',
-                    max_tokens: 600,
-                    temperature: 0.7,
-                    messages: [
-                      { role: 'system', content: system || 'Sen peydaly AI komekci.' },
-                      ...messages,
-                    ],
-                  }),
-                })
-
-                const data = await r.json()
-                if (!r.ok) throw new Error(data?.error?.message || 'HTTP ' + r.status)
-
-                const text = data?.choices?.[0]?.message?.content
-                res.setHeader('Content-Type', 'application/json')
-                res.end(JSON.stringify({ text }))
+                req.body = raw ? JSON.parse(raw) : {}
+                const shim = {
+                  status(c) { res.statusCode = c; return shim },
+                  json(o) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)) },
+                }
+                const mod = await server.ssrLoadModule(`/api/${m[1]}.js`)
+                await mod.default(req, shim)
               } catch (e) {
                 res.statusCode = 500
                 res.setHeader('Content-Type', 'application/json')
@@ -59,9 +37,6 @@ export default defineConfig(({ mode }) => {
         },
       },
     ],
-    server: {
-      host: true,
-      port: 5173,
-    },
+    server: { host: true, port: 5173 },
   }
 })
