@@ -3731,24 +3731,42 @@ export default function App() {
     : tasks;
 
   // Giriş ekrany
-  if (!cu) {
-    return (
-      <>
-        <Login
-          users={normUsers}
-          onLogin={(u) => { setCu({ ...u, wid: u.wid || u.workerId || null }); setTab("d"); }}
-          C={C} dark={dark} setDark={setDark} tl={tl} lang={lang} setL={setL}
-        />
-        <Toast ts={ts} rm={rm} C={C} />
-      </>
-    );
-  }
-
-  const role = RL[cu.role];
-  const tabs = getTabs(cu, tl);
-
+if (!cu) {
   return (
-    <div style={{ minHeight: "calc(100 * var(--kvh, 1vh))", background: C.bg, color: C.tx, fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif", display: "flex", flexDirection: "column", transition: "background .3s,color .3s" }}>
+    <>
+      {/* Dil saýlama düwmeleri Login-iň ýokarysynda ýerleşýär */}
+      <div style={{ display: "flex", gap: "8px", justifyContent: "center", padding: "16px 0" }}>
+        {["tk", "ru", "en"].map((l) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => setL(l)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: "6px",
+              border: "1px solid",
+              borderColor: lang === l ? C.ac : "#ccc",
+              background: lang === l ? C.ac : "transparent",
+              color: lang === l ? "#fff" : C.tx,
+              cursor: "pointer",
+              fontWeight: lang === l ? "bold" : "normal",
+              textTransform: "uppercase"
+            }}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <Login
+        users={normUsers}
+        onLogin={(u) => { setCu({ ...u, wid: u.wid || u.workerId || null }); setTab("d"); }}
+        C={C} dark={dark} setDark={setDark} tl={tl} lang={lang} setL={setL}
+      />
+      <Toast ts={ts} rm={rm} C={C} />
+    </>
+  );
+}
 
       {/* ─── HEADER ─── */}
       <header style={{ background: C.sf, borderBottom: `1px solid ${C.bd}`, padding: mob ? "0 13px" : compact ? "0 14px" : "0 26px", height: mob ? 54 : 62, position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(14px)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
