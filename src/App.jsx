@@ -1,43 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import bcrypt from "bcryptjs";
-
+import { createClient } from "@supabase/supabase-js";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js"; // <-- Goşulmaly
+import bcrypt from "bcryptjs";
 // ─── Supabase ─────────────────────────────────────────────────
-<<<<<<< HEAD
-const SB_URL = "https://gilwqcqzzlxvdpqokpyh.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
+const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdpb3dxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwMjQ4OTEsImV4cCI6MjA1NzYwMDg5MX0.Q7J68eB3fO8CInaJvJvL2yB-i11m320LzQJ4g1J-7_E";
+const supabase = createClient(SB_URL, SB_KEY);
 // Supabase API helper
 async function sbFetch(path, method="GET", body=null) {
-=======
-// URL we anon açar açyk (public) — howpsuzlyk RLS-de. .env → VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
-const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
-
-const sb = createClient(SB_URL, SB_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: "komekchi-auth" },
-});
-
-// Häzirki dil (sbFetch ýalňyşlyk habarlaryny terjime etmek üçin; App her render-de täzeleýär)
-let TL = null;
-
-// Login ady → e-poçta (SQL-daky _kom_email() we api/_sb.js bilen BIRMEŇZEŞ bolmaly)
-function toEmail(username) {
-  const u = String(username || "").trim().toLowerCase();
-  if (!u) return "";
-  if (u.includes("@")) return u;
-  return u + "@komekchi.app";
-}
-
-
-async function accessToken() {
-  const { data } = await sb.auth.getSession(); // wagty geçen bolsa awtomatik täzeleýär
-  return data?.session?.access_token || null;
-}
-
-// PostgREST — hemişe ULANYJYNYŇ tokeni bilen (RLS rola görä çäklendirýär)
-async function sbFetch(path, method = "GET", body = null, extraHeaders = null) {
-  const token = await accessToken();
-  if (!token) throw new Error(TL?.sessionExpired || "Session expired");
->>>>>>> 6273f9a0a71af4fa78c447fda4f0099cf154612b
   const headers = {
     "apikey": SB_KEY,
     "Authorization": "Bearer " + SB_KEY,
