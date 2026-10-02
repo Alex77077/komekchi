@@ -3,9 +3,8 @@ import bcrypt from "bcryptjs";
 import { createClient } from "@supabase/supabase-js";
 
 // ─── Supabase ──────────────────────────────
-const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdpb3dxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwMjQ4OTEsImV4cCI6MjA1NzYwMDg5MX0.Q7J68eB3fO8CInaJvJvL2yB-i11m320LzQJ4g1J-7_E";
-const supabase = createClient(SB_URL, SB_KEY);
+const SB_URL = "https://gilwqcqzzlxvdpqokpyh.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
 // Supabase API helper
 async function sbFetch(path, method="GET", body=null) {
   const headers = {
