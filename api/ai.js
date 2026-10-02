@@ -57,8 +57,6 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         max_completion_tokens: 2048,
-        reasoning_effort: "low",
-        include_reasoning: false,
         temperature: 0.7,
         messages: [
           { role: "system", content: String(system || "Sen peýdaly AI kömekçi.").slice(0, 12000) },

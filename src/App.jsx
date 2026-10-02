@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js"; // <-- Goşulmaly
 import bcrypt from "bcryptjs";
-// ─── Supabase ─────────────────────────────────────────────────
+// ─── Supabase ──────────────────────────────
 const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdpb3dxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwMjQ4OTEsImV4cCI6MjA1NzYwMDg5MX0.Q7J68eB3fO8CInaJvJvL2yB-i11m320LzQJ4g1J-7_E";
 const supabase = createClient(SB_URL, SB_KEY);
