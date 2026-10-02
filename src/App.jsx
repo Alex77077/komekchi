@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import bcrypt from "bcryptjs";
-import { createClient } from "@supabase/supabase-js";
+
 
 // ─── Supabase ──────────────────────────────
 const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
