@@ -1,26 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import bcrypt from "bcryptjs";
 
-
 // ─── Supabase ──────────────────────────────
 const SB_URL = import.meta.env.VITE_SUPABASE_URL || "https://gilwqcqzzlxvdpqokpyh.supabase.co";
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpbHdxY3F6emx4dmRwcW9rcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNTI3MzksImV4cCI6MjA4OTgyODczOX0.recR9olpXA9h9bOAxHnlwl0ar2Y3TLW8iiXXUD6_iPs";
+
 // Supabase API helper
-async function sbFetch(path, method="GET", body=null) {
+async function sbFetch(path, method = "GET", body = null) {
   const headers = {
     "apikey": SB_KEY,
     "Authorization": "Bearer " + SB_KEY,
     "Content-Type": "application/json",
   };
 
-  // Diňe täze maglumat goşulanda (POST) ýa-da üýtgedilende (PATCH) 
-  // bize täze maglumatyň nusgasyny gaýtaryp bermegini soraýarys.
-  // "users" tablisasynda "password" sütünini anon okap bilmeýär (GRANT/RLS).
-  // return=representation "RETURNING *" edýär → "permission denied" bolup,
-  // ulanyjy goşmak / parol üýtgetmek başa barmaýardy. Şonuň üçin users
-  // üçin return=minimal (jogap bedeni gerek däl).
+  // 'path' parametrinden diňe arassa tablisa adyny alýarys (Query parametrleri aýyryp)
+  const tableName = path.split("?")[0];
+
+  // "users" tablisasynda "password" sütünini anon okap bilmeýändigi (RLS/GRANT) üçin:
+  // users üçin return=minimal (jogap bedeni gerek däl), beýleki tablisalar üçin return=representation.
   if (method === "POST" || method === "PATCH") {
-    headers["Prefer"] = path.startsWith("users") ? "return=minimal" : "return=representation";
+    headers["Prefer"] = tableName === "users" ? "return=minimal" : "return=representation";
   }
 
   const res = await fetch(SB_URL + "/rest/v1/" + path, {
@@ -35,13 +34,12 @@ async function sbFetch(path, method="GET", body=null) {
     throw new Error(err);
   }
 
-  // Eger baza '204 No Content' (jogap boş) gaýtarsa, programma ýalňyşlyk bermez ýaly:
+  // Eger status 204 (No Content) bolsa ýa-da jogap bedeni boş bolsa null gaýtarýarys
   if (res.status === 204) return null;
 
   const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  return text && text.trim().length > 0 ? JSON.parse(text) : null;
 }
-
 
 // ─── Supabase Storage — faýl ýüklemek ─────────────
 const SB_STORAGE = SB_URL + "/storage/v1";
